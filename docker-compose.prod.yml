@@ -1,0 +1,49 @@
+# Stack de PRODUCTION — jirou.innov9.fr
+# Usage : docker compose -f docker-compose.prod.yml up -d --build
+#
+# - db / qdrant NON exposés à Internet (pas de ports publics).
+# - Données persistées via bind-mounts dans ./data/ (postgres, qdrant, uploads).
+# - Frontend absent : build statique servi par Caddy (/var/www/jirou.innov9.fr).
+# - Caddy (systemd, hôte) : jirou.innov9.fr (front) + api.jirou.innov9.fr -> 127.0.0.1:8011.
+name: jirou-prod
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-jirou}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jirou}
+      POSTGRES_DB: ${POSTGRES_DB:-jirou}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-jirou} -d ${POSTGRES_DB:-jirou}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    volumes:
+      - ./data/qdrant:/qdrant/storage
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    volumes:
+      # Uploads persistés sur le disque hôte (pièces jointes + médias de veille).
+      - ./data/uploads:/data/uploads
+    # 127.0.0.1 uniquement : exposé au public via Caddy (api.jirou.innov9.fr).
+    ports:
+      - "127.0.0.1:8011:8000"
+    # L'ENTRYPOINT joue `alembic upgrade head` ; on retire --reload pour la prod.
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
