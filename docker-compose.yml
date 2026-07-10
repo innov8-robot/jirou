@@ -47,6 +47,10 @@ services:
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
       REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+      # ---- Admin seed (scripts.create_admin) ----
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@jirou.app}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin_dev_password}
+      ADMIN_NAME: ${ADMIN_NAME:-Jirou Admin}
       # ---- RAG / chatbot ----
       QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
       MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
