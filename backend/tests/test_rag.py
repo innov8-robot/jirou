@@ -281,3 +281,104 @@ def test_reindex_and_chat_endpoints(client: TestClient, rag_env: QdrantClient) -
     body = resp.json()
     assert "answer" in body and isinstance(body["sources"], list)
     assert any(s["issue_key"] == issue["key"] for s in body["sources"])
+
+
+# --------------------------------------------------------------------------- #
+# Indexation incrémentale : hash de contenu + suppression de points
+# --------------------------------------------------------------------------- #
+def test_index_chunks_skips_unchanged(
+    client: TestClient, db_session, rag_env: QdrantClient
+) -> None:
+    """index_chunks n'embed que le nouveau/modifié (hash) et ignore l'inchangé."""
+    _register(client, "hash@example.com")
+    token = _login(client, "hash@example.com")
+    project = _create_project(client, token, "HASH")
+    issue = _create_issue(client, token, project["id"], "Titre initial", "Description initiale.")
+
+    chunks = rag_service.build_chunks(db_session, [project["id"]])
+    # Premier passage : le ticket est nouveau -> 1 embeddé, 0 ignoré.
+    assert rag_service.index_chunks(chunks, client=rag_env) == (1, 0)
+    # Contenu identique -> hash inchangé -> rien n'est ré-embeddé.
+    assert rag_service.index_chunks(chunks, client=rag_env) == (0, 1)
+
+    # Le résumé change -> le hash change -> ré-embed ciblé.
+    resp = client.patch(
+        f"/api/v1/issues/{issue['key']}",
+        json={"summary": "Titre modifié"},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 200, resp.text
+    chunks = rag_service.build_chunks(db_session, [project["id"]])
+    assert rag_service.index_chunks(chunks, client=rag_env) == (1, 0)
+
+    # force=True ré-embed tout, même à contenu inchangé.
+    assert rag_service.index_chunks(chunks, client=rag_env, force=True) == (1, 0)
+
+
+def test_delete_points_removes_from_index(
+    client: TestClient, db_session, rag_env: QdrantClient
+) -> None:
+    """delete_points retire un point : il ne remonte plus dans les sources du chat."""
+    from app.services.user import get_user_by_email
+
+    _register(client, "del@example.com")
+    token = _login(client, "del@example.com")
+    project = _create_project(client, token, "DELP")
+    issue = _create_issue(client, token, project["id"], "Sujet supprimable", "Contenu à retirer.")
+
+    rag_service.reindex(db_session, [project["id"]], client=rag_env)
+    owner = get_user_by_email(db_session, "del@example.com")
+    result = rag_service.answer(db_session, owner, "Sujet supprimable ?", client=rag_env)
+    assert any(s["issue_key"] == issue["key"] for s in result["sources"])
+
+    # Désindexation du point de l'issue (déterministe par kind:id).
+    removed = rag_service.delete_points(
+        [rag_service.point_id("issue", issue["id"])], client=rag_env
+    )
+    assert removed == 1
+    result = rag_service.answer(db_session, owner, "Sujet supprimable ?", client=rag_env)
+    assert all(s["issue_key"] != issue["key"] for s in result["sources"])
+
+
+def test_unindex_issue_removes_comment_points(
+    client: TestClient, db_session, rag_env: QdrantClient
+) -> None:
+    """unindex_issue retire le point du ticket ET ceux de ses commentaires."""
+    _register(client, "cascade@example.com")
+    token = _login(client, "cascade@example.com")
+    project = _create_project(client, token, "CASC")
+    issue = _create_issue(client, token, project["id"], "Ticket avec commentaire", "Corps.")
+    resp = client.post(
+        f"/api/v1/issues/{issue['key']}/comments",
+        json={"body": "Un commentaire à désindexer."},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 201, resp.text
+    comment_id = resp.json()["id"]
+
+    rag_service.reindex(db_session, [project["id"]], client=rag_env)
+
+    # Le ticket et son commentaire sont bien indexés (2 points présents).
+    records = rag_env.retrieve(
+        collection_name=settings.RAG_COLLECTION,
+        ids=[
+            rag_service.point_id("issue", issue["id"]),
+            rag_service.point_id("comment", comment_id),
+        ],
+    )
+    assert len(records) == 2
+
+    # Le hook unindex_issue s'appuie sur get_qdrant_client (surchargé vers rag_env
+    # par la fixture) et sur la clé Mistral posée par rag_env (RAG actif).
+    from app.services import rag_hooks
+
+    rag_hooks.unindex_issue(issue["id"], [comment_id])
+
+    records = rag_env.retrieve(
+        collection_name=settings.RAG_COLLECTION,
+        ids=[
+            rag_service.point_id("issue", issue["id"]),
+            rag_service.point_id("comment", comment_id),
+        ],
+    )
+    assert records == []

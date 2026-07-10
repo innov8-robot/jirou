@@ -35,7 +35,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import (
@@ -57,6 +57,7 @@ from app.schemas.document import (
     GlobalDocumentSummary,
 )
 from app.services import document as document_service
+from app.services import rag_hooks
 from app.services.project import get_membership
 
 router = APIRouter()
@@ -159,6 +160,7 @@ def list_documents(
 def create_document(
     data: DocumentCreate,
     db: DbSession,
+    background: BackgroundTasks,
     ctx: Annotated[
         ProjectContext,
         Depends(require_project_role(ProjectRole.MEMBER, ProjectRole.ADMIN)),
@@ -167,8 +169,10 @@ def create_document(
     """Crée une page de documentation. Interdit aux viewers (403).
 
     Le lead et l'admin global sont autorisés. 404 si le projet est inconnu.
+    Indexe le document dans le RAG en tâche de fond (best-effort).
     """
     document = document_service.create_document(db, ctx.project, ctx.current_user, data)
+    background.add_task(rag_hooks.index_document, document.id)
     return DocumentRead.model_validate(document)
 
 
@@ -203,9 +207,14 @@ def create_general_document(
     data: DocumentCreate,
     current_user: CurrentUser,
     db: DbSession,
+    background: BackgroundTasks,
 ) -> DocumentRead:
-    """Crée un document **général** (non rattaché à un projet), attribué à l'appelant."""
+    """Crée un document **général** (non rattaché à un projet), attribué à l'appelant.
+
+    Indexe le document dans le RAG en tâche de fond (best-effort).
+    """
     document = document_service.create_general(db, current_user, data)
+    background.add_task(rag_hooks.index_document, document.id)
     return DocumentRead.model_validate(document)
 
 
@@ -236,6 +245,7 @@ def get_document(
 def update_document(
     data: DocumentUpdate,
     db: DbSession,
+    background: BackgroundTasks,
     ctx: Annotated[DocumentContext, Depends(get_document_context)],
 ) -> DocumentRead:
     """Modifie un document.
@@ -243,6 +253,8 @@ def update_document(
     - Document général : réservé à l'auteur ou à un admin global.
     - Document de projet : auteur, membre ``member``/``admin``, lead ou admin
       global (un viewer non-auteur ne peut pas éditer).
+
+    Réindexe le document dans le RAG en tâche de fond (ignoré si texte inchangé).
     """
     user = ctx.current_user
     is_author = ctx.document.author_id == user.id
@@ -256,6 +268,7 @@ def update_document(
             detail="Édition réservée à l'auteur ou à un membre non-viewer du projet.",
         )
     document = document_service.update_document(db, ctx.document, data)
+    background.add_task(rag_hooks.index_document, document.id)
     return DocumentRead.model_validate(document)
 
 
@@ -266,12 +279,15 @@ def update_document(
 )
 def delete_document(
     db: DbSession,
+    background: BackgroundTasks,
     ctx: Annotated[DocumentContext, Depends(get_document_context)],
 ) -> None:
     """Supprime un document.
 
     - Document général : réservé à l'auteur ou à un admin global.
     - Document de projet : auteur, lead, admin projet ou admin global.
+
+    Retire le document de l'index RAG en tâche de fond.
     """
     user = ctx.current_user
     is_author = ctx.document.author_id == user.id
@@ -287,4 +303,6 @@ def delete_document(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Suppression réservée à l'auteur, au lead/admin projet ou à un admin global.",
         )
+    document_id = ctx.document.id
     document_service.delete_document(db, ctx.document)
+    background.add_task(rag_hooks.unindex_document, document_id)

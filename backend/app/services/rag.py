@@ -22,6 +22,7 @@ Aucun appel réseau n'est effectué à l'import du module.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import uuid
 from typing import TYPE_CHECKING
@@ -160,23 +161,91 @@ def ensure_collection(client: QdrantClient) -> None:
 # --------------------------------------------------------------------------- #
 # Construction des chunks
 # --------------------------------------------------------------------------- #
-def _chunk_id(kind: str, obj_id: int) -> str:
-    """Identifiant de point Qdrant déterministe pour un chunk donné."""
+def point_id(kind: str, obj_id: int) -> str:
+    """Identifiant de point Qdrant déterministe pour un objet ``(kind, id)``.
+
+    Déterministe : le même objet réindexé **écrase** son point (pas de doublon),
+    et sa suppression cible directement le point sans table de correspondance.
+    """
     return str(uuid.uuid5(_POINT_NAMESPACE, f"{kind}:{obj_id}"))
+
+
+def _text_hash(text: str) -> str:
+    """Empreinte stable du texte d'un chunk, pour détecter un changement de contenu."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def build_issue_chunk(issue: Issue) -> dict:
+    """Construit le chunk d'indexation d'un ticket (texte + payload + ``text_hash``)."""
+    summary = issue.summary or ""
+    description = strip_html(issue.description)
+    status = getattr(issue.status, "value", issue.status)
+    itype = getattr(issue.type, "value", issue.type)
+    priority = getattr(issue.priority, "value", issue.priority)
+    meta = f"Type: {itype} | Statut: {status} | Priorité: {priority}"
+    if issue.story_points is not None:
+        meta += f" | Points: {issue.story_points}"
+    text = f"{issue.key} {summary}\n{meta}\n{description}".strip()
+    return {
+        "point_id": point_id("issue", issue.id),
+        "payload": {
+            "kind": "issue",
+            "project_id": issue.project_id,
+            "issue_key": issue.key,
+            "title": summary,
+            "is_general": False,
+            "text": text,
+            "text_hash": _text_hash(text),
+        },
+        "text": text,
+    }
+
+
+def build_comment_chunk(issue: Issue, comment: Comment) -> dict:
+    """Construit le chunk d'indexation d'un commentaire (rattaché à ``issue``)."""
+    body = strip_html(comment.body)
+    return {
+        "point_id": point_id("comment", comment.id),
+        "payload": {
+            "kind": "comment",
+            "project_id": issue.project_id,
+            "issue_key": issue.key,
+            "title": issue.summary or "",
+            "is_general": False,
+            "text": body,
+            "text_hash": _text_hash(body),
+        },
+        "text": body,
+    }
+
+
+def build_document_chunk(document: Document) -> dict:
+    """Construit le chunk d'indexation d'un document (de projet ou général)."""
+    is_general = document.project_id is None
+    content = strip_html(document.content)
+    text = f"{document.title}\n{content}".strip()
+    return {
+        "point_id": point_id("document", document.id),
+        "payload": {
+            "kind": "document",
+            "project_id": document.project_id,
+            "issue_key": None,
+            "title": document.title,
+            "is_general": is_general,
+            "text": text,
+            "text_hash": _text_hash(text),
+        },
+        "text": text,
+    }
 
 
 def build_chunks(db: Session, project_ids: list[int]) -> list[dict]:
     """Construit les chunks à indexer pour ``project_ids``.
 
-    Inclut :
-
-    - un chunk par **ticket** des projets ;
-    - un chunk par **commentaire** rattaché à un ticket de ces projets ;
-    - un chunk par **document** de ces projets **plus les documents généraux**
-      (``project_id`` NULL), accessibles à tous.
-
-    Chaque chunk porte un ``point_id`` déterministe, un ``payload`` (kind,
-    project_id, issue_key, title, is_general) et le ``text`` à embedder.
+    Inclut un chunk par **ticket** des projets, un par **commentaire** de ces
+    tickets, et un par **document** de ces projets **plus les documents généraux**
+    (``project_id`` NULL, visibles de tous). Le détail par objet est délégué aux
+    ``build_*_chunk`` (mêmes builders que l'indexation incrémentale).
     """
     chunks: list[dict] = []
 
@@ -185,30 +254,7 @@ def build_chunks(db: Session, project_ids: list[int]) -> list[dict]:
             db.execute(select(Issue).where(Issue.project_id.in_(project_ids))).scalars().all()
         )
         issue_by_id = {issue.id: issue for issue in issues}
-        for issue in issues:
-            summary = issue.summary or ""
-            description = strip_html(issue.description)
-            status = getattr(issue.status, "value", issue.status)
-            itype = getattr(issue.type, "value", issue.type)
-            priority = getattr(issue.priority, "value", issue.priority)
-            meta = f"Type: {itype} | Statut: {status} | Priorité: {priority}"
-            if issue.story_points is not None:
-                meta += f" | Points: {issue.story_points}"
-            text = f"{issue.key} {summary}\n{meta}\n{description}".strip()
-            chunks.append(
-                {
-                    "point_id": _chunk_id("issue", issue.id),
-                    "payload": {
-                        "kind": "issue",
-                        "project_id": issue.project_id,
-                        "issue_key": issue.key,
-                        "title": summary,
-                        "is_general": False,
-                        "text": text,
-                    },
-                    "text": text,
-                }
-            )
+        chunks.extend(build_issue_chunk(issue) for issue in issues)
 
         if issue_by_id:
             comments = list(
@@ -216,47 +262,16 @@ def build_chunks(db: Session, project_ids: list[int]) -> list[dict]:
                 .scalars()
                 .all()
             )
-            for comment in comments:
-                issue = issue_by_id[comment.issue_id]
-                body = strip_html(comment.body)
-                chunks.append(
-                    {
-                        "point_id": _chunk_id("comment", comment.id),
-                        "payload": {
-                            "kind": "comment",
-                            "project_id": issue.project_id,
-                            "issue_key": issue.key,
-                            "title": issue.summary or "",
-                            "is_general": False,
-                            "text": body,
-                        },
-                        "text": body,
-                    }
-                )
+            chunks.extend(
+                build_comment_chunk(issue_by_id[comment.issue_id], comment) for comment in comments
+            )
 
     # Documents des projets ciblés + documents généraux (project_id NULL).
     doc_filter = Document.project_id.is_(None)
     if project_ids:
         doc_filter = or_(doc_filter, Document.project_id.in_(project_ids))
     documents = list(db.execute(select(Document).where(doc_filter)).scalars().all())
-    for document in documents:
-        is_general = document.project_id is None
-        content = strip_html(document.content)
-        text = f"{document.title}\n{content}".strip()
-        chunks.append(
-            {
-                "point_id": _chunk_id("document", document.id),
-                "payload": {
-                    "kind": "document",
-                    "project_id": document.project_id,
-                    "issue_key": None,
-                    "title": document.title,
-                    "is_general": is_general,
-                    "text": text,
-                },
-                "text": text,
-            }
-        )
+    chunks.extend(build_document_chunk(document) for document in documents)
 
     return chunks
 
@@ -264,20 +279,24 @@ def build_chunks(db: Session, project_ids: list[int]) -> list[dict]:
 # --------------------------------------------------------------------------- #
 # Indexation
 # --------------------------------------------------------------------------- #
-def reindex(
-    db: Session,
-    project_ids: list[int],
+def index_chunks(
+    chunks: list[dict],
     *,
     client: QdrantClient | None = None,
     batch_size: int = 64,
-) -> int:
-    """(Ré)indexe ``project_ids`` (+ documents généraux) dans Qdrant.
+    force: bool = False,
+) -> tuple[int, int]:
+    """Indexe des chunks dans Qdrant en n'embeddant que le contenu nouveau/modifié.
 
-    Calcule les embeddings par lots puis ``upsert`` les points avec leur payload.
-    Retourne le nombre de points indexés.
+    Récupère les points existants par identifiant et compare leur ``text_hash`` à
+    celui de chaque chunk : un chunk au hash **inchangé est ignoré** (aucun appel
+    d'embedding, aucun upsert). ``force=True`` ré-embed tout. Renvoie
+    ``(embeddés, ignorés)``.
     """
     from qdrant_client import models
 
+    if not chunks:
+        return (0, 0)
     client = client or get_qdrant_client()
     try:
         ensure_collection(client)
@@ -286,13 +305,30 @@ def reindex(
     except Exception as exc:  # noqa: BLE001 - Qdrant injoignable => 503 côté endpoint
         raise RagUnavailable(f"Qdrant injoignable : {exc}") from exc
 
-    chunks = build_chunks(db, project_ids)
-    if not chunks:
-        return 0
+    existing: dict[str, str | None] = {}
+    if not force:
+        try:
+            records = client.retrieve(
+                collection_name=settings.RAG_COLLECTION,
+                ids=[c["point_id"] for c in chunks],
+                with_payload=True,
+                with_vectors=False,
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise RagUnavailable(f"Qdrant injoignable : {exc}") from exc
+        existing = {str(record.id): (record.payload or {}).get("text_hash") for record in records}
+
+    changed = [
+        chunk
+        for chunk in chunks
+        if force or existing.get(str(chunk["point_id"])) != chunk["payload"]["text_hash"]
+    ]
+    if not changed:
+        return (0, len(chunks))
 
     points: list[models.PointStruct] = []
-    for start in range(0, len(chunks), batch_size):
-        batch = chunks[start : start + batch_size]
+    for start in range(0, len(changed), batch_size):
+        batch = changed[start : start + batch_size]
         vectors = embed_texts([c["text"] for c in batch])
         for chunk, vector in zip(batch, vectors, strict=True):
             points.append(
@@ -303,7 +339,54 @@ def reindex(
         client.upsert(collection_name=settings.RAG_COLLECTION, points=points)
     except Exception as exc:  # noqa: BLE001
         raise RagUnavailable(f"Qdrant injoignable : {exc}") from exc
-    return len(points)
+    return (len(changed), len(chunks) - len(changed))
+
+
+def delete_points(point_ids: list[str], *, client: QdrantClient | None = None) -> int:
+    """Supprime des points de Qdrant par identifiant (idempotent).
+
+    Renvoie le nombre de points visés. Un identifiant absent est silencieusement
+    ignoré par Qdrant (pas d'erreur).
+    """
+    from qdrant_client import models
+
+    if not point_ids:
+        return 0
+    client = client or get_qdrant_client()
+    try:
+        ensure_collection(client)
+        client.delete(
+            collection_name=settings.RAG_COLLECTION,
+            points_selector=models.PointIdsList(points=list(point_ids)),
+        )
+    except RagNotConfigured:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise RagUnavailable(f"Qdrant injoignable : {exc}") from exc
+    return len(point_ids)
+
+
+def reindex(
+    db: Session,
+    project_ids: list[int],
+    *,
+    client: QdrantClient | None = None,
+    batch_size: int = 64,
+    force: bool = False,
+) -> int:
+    """(Ré)indexe ``project_ids`` (+ documents généraux) dans Qdrant.
+
+    Indexation **incrémentale** : seuls les chunks dont le texte a changé depuis la
+    dernière fois sont ré-embeddés (cf. :func:`index_chunks`), ce qui économise les
+    appels d'embedding sur un contenu stable. ``force=True`` reconstruit tout.
+    Retourne le nombre total de chunks présents dans le périmètre.
+    """
+    client = client or get_qdrant_client()
+    chunks = build_chunks(db, project_ids)
+    if not chunks:
+        return 0
+    index_chunks(chunks, client=client, batch_size=batch_size, force=force)
+    return len(chunks)
 
 
 # --------------------------------------------------------------------------- #

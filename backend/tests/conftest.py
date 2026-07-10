@@ -30,6 +30,19 @@ from app.models.enums import UserRole
 from app.models.user import User
 
 
+@pytest.fixture(autouse=True)
+def _disable_rag_indexing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Neutralise l'indexation RAG automatique par défaut pour tous les tests.
+
+    Les hooks d'indexation (planifiés via ``BackgroundTasks`` sur create/update/
+    delete) sont gardés derrière ``MISTRAL_API_KEY`` ; on la vide pour que les
+    tests standards n'effectuent jamais d'appel réseau vers Qdrant/Mistral (utile
+    en local où un ``.env`` réel peut renseigner la clé). Les tests RAG la
+    réactivent explicitement via leur fixture ``rag_env``.
+    """
+    monkeypatch.setattr(settings, "MISTRAL_API_KEY", "")
+
+
 @pytest.fixture(scope="session")
 def engine() -> Generator[Engine, None, None]:
     """Engine partagé pour la session de tests ; crée puis supprime les tables."""

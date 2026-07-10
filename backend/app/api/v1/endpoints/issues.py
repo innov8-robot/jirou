@@ -14,7 +14,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from sqlalchemy.orm import Session
 
 from app.api.deps import (
@@ -49,9 +59,11 @@ from app.schemas.timeline import (
     TimelineEpic,
     TimelineRead,
 )
+from app.services import comment as comment_service
 from app.services import dependency as dependency_service
 from app.services import issue as issue_service
 from app.services import issue_import as issue_import_service
+from app.services import rag_hooks
 from app.services import sprint as sprint_service
 from app.services import timeline as timeline_service
 from app.services.dependency import DependencyServiceError
@@ -193,6 +205,7 @@ project_router = APIRouter()
 def create_issue(
     data: IssueCreate,
     db: DbSession,
+    background: BackgroundTasks,
     # membre du projet mais PAS viewer.
     ctx: Annotated[
         ProjectContext,
@@ -202,11 +215,14 @@ def create_issue(
     """Crée un ticket. Clé auto-générée, reporter = utilisateur courant.
 
     - 403 si viewer projet, 404 si projet inconnu, 422 si validation échoue.
+
+    Indexe le ticket dans le RAG en tâche de fond (best-effort).
     """
     try:
         issue = issue_service.create_issue(db, ctx.project, data, ctx.current_user)
     except IssueServiceError as exc:
         _raise_service_error(exc)
+    background.add_task(rag_hooks.index_issue, issue.id)
     return IssueRead.model_validate(issue)
 
 
@@ -217,6 +233,7 @@ def create_issue(
 )
 def import_issues(
     db: DbSession,
+    background: BackgroundTasks,
     # membre du projet mais PAS viewer.
     ctx: Annotated[
         ProjectContext,
@@ -238,11 +255,13 @@ def import_issues(
     """
     csv_bytes = file.file.read()
     try:
-        return issue_import_service.import_issues_from_csv(
+        result = issue_import_service.import_issues_from_csv(
             db, ctx.project, csv_bytes, ctx.current_user, target_epic_id=epic_id
         )
     except IssueServiceError as exc:
         _raise_service_error(exc)
+    background.add_task(rag_hooks.index_issues_bulk, [issue.id for issue in result.issues])
+    return result
 
 
 @project_router.get(
@@ -382,13 +401,19 @@ def get_issue(
 def update_issue(
     data: IssueUpdate,
     db: DbSession,
+    background: BackgroundTasks,
     ctx: Annotated[IssueContext, Depends(require_issue_writer)],
 ) -> IssueDetail:
-    """Mise à jour partielle d'un ticket. Interdit aux viewers (403), 422 si invalide."""
+    """Mise à jour partielle d'un ticket. Interdit aux viewers (403), 422 si invalide.
+
+    Réindexe le ticket dans le RAG en tâche de fond (best-effort ; ignoré si le
+    texte n'a pas changé grâce au hash).
+    """
     try:
         issue = issue_service.update_issue(db, ctx.issue, data, actor=ctx.current_user)
     except IssueServiceError as exc:
         _raise_service_error(exc)
+    background.add_task(rag_hooks.index_issue, issue.id)
     return _serialize_detail(db, issue)
 
 
@@ -400,14 +425,19 @@ def update_issue(
 def move_issue(
     data: IssueMove,
     db: DbSession,
+    background: BackgroundTasks,
     ctx: Annotated[IssueContext, Depends(require_issue_writer)],
 ) -> IssueRead:
     """Place l'issue au statut/rang cibles et renormalise les colonnes touchées.
 
     - 403 pour un viewer projet, 404 si la clé est inconnue, 422 si le statut est
       invalide. ``position`` hors bornes est clampé (pas d'erreur).
+
+    Le statut fait partie du texte indexé : on réindexe en tâche de fond (le hash
+    évite tout embed inutile si le contenu n'a pas réellement changé).
     """
     issue = issue_service.move_issue(db, ctx.issue, status=data.status, position=data.position)
+    background.add_task(rag_hooks.index_issue, issue.id)
     return IssueRead.model_validate(issue)
 
 
@@ -419,6 +449,7 @@ def move_issue(
 def backlog_move(
     data: BacklogMove,
     db: DbSession,
+    background: BackgroundTasks,
     ctx: Annotated[IssueContext, Depends(require_issue_writer)],
 ) -> IssueRead:
     """Place l'issue dans un sprint (``sprint_id``) ou le backlog (``null``) au rang cible.
@@ -437,6 +468,7 @@ def backlog_move(
             status_code=_ERROR_STATUS.get(exc.code, status.HTTP_400_BAD_REQUEST),
             detail=exc.message,
         ) from exc
+    background.add_task(rag_hooks.index_issue, issue.id)
     return IssueRead.model_validate(issue)
 
 
@@ -447,9 +479,14 @@ def backlog_move(
 )
 def delete_issue(
     db: DbSession,
+    background: BackgroundTasks,
     ctx: Annotated[IssueContext, Depends(get_issue_context)],
 ) -> None:
-    """Supprime un ticket. Réservé au reporter, au lead/admin projet ou admin global."""
+    """Supprime un ticket. Réservé au reporter, au lead/admin projet ou admin global.
+
+    Retire de l'index RAG le ticket **et ses commentaires** (points orphelins après
+    la cascade) en tâche de fond ; les ids sont capturés avant la suppression.
+    """
     user = ctx.current_user
     is_global_admin = user.role == UserRole.ADMIN
     is_lead = ctx.project.lead_id == user.id
@@ -460,7 +497,10 @@ def delete_issue(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Suppression réservée au reporter, au lead/admin projet ou à un admin global.",
         )
+    issue_id = ctx.issue.id
+    comment_ids = [comment.id for comment in comment_service.list_comments(db, ctx.issue)]
     issue_service.delete_issue(db, ctx.issue)
+    background.add_task(rag_hooks.unindex_issue, issue_id, comment_ids)
 
 
 # --------------------------------------------------------------------------- #

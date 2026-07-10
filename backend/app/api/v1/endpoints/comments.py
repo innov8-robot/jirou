@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser
@@ -31,6 +31,7 @@ from app.models.project import Project, ProjectMember
 from app.models.user import User
 from app.schemas.comment import CommentCreate, CommentRead, CommentUpdate
 from app.services import comment as comment_service
+from app.services import rag_hooks
 from app.services.project import get_membership
 
 router = APIRouter()
@@ -107,12 +108,14 @@ def list_comments(
 def create_comment(
     data: CommentCreate,
     db: DbSession,
+    background: BackgroundTasks,
     ctx: Annotated[IssueContext, Depends(require_issue_writer)],
 ) -> CommentRead:
     """Crée un commentaire. Interdit aux viewers (403).
 
     ``mention_user_ids`` déclenche une notification ``mention`` pour chaque
     utilisateur membre du projet (l'auteur et les non-membres sont ignorés).
+    Indexe le commentaire dans le RAG en tâche de fond (best-effort).
     """
     comment = comment_service.create_comment(
         db,
@@ -122,6 +125,7 @@ def create_comment(
         data.body,
         data.mention_user_ids,
     )
+    background.add_task(rag_hooks.index_comment, comment.id)
     return CommentRead.model_validate(comment)
 
 
@@ -136,6 +140,7 @@ def create_comment(
 def update_comment(
     data: CommentUpdate,
     db: DbSession,
+    background: BackgroundTasks,
     ctx: Annotated[CommentContext, Depends(get_comment_context)],
 ) -> CommentRead:
     """Modifie un commentaire. Réservé à son auteur ou à un admin global (403 sinon)."""
@@ -148,6 +153,7 @@ def update_comment(
             detail="Édition réservée à l'auteur ou à un admin global.",
         )
     comment = comment_service.update_comment(db, ctx.comment, data.body)
+    background.add_task(rag_hooks.index_comment, comment.id)
     return CommentRead.model_validate(comment)
 
 
@@ -158,11 +164,13 @@ def update_comment(
 )
 def delete_comment(
     db: DbSession,
+    background: BackgroundTasks,
     ctx: Annotated[CommentContext, Depends(get_comment_context)],
 ) -> None:
     """Supprime un commentaire.
 
     Réservé à l'auteur, au lead/admin projet ou à un admin global (403 sinon).
+    Retire le commentaire de l'index RAG en tâche de fond.
     """
     user = ctx.current_user
     is_author = ctx.comment.author_id == user.id
@@ -174,4 +182,6 @@ def delete_comment(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Suppression réservée à l'auteur, au lead/admin projet ou à un admin global.",
         )
+    comment_id = ctx.comment.id
     comment_service.delete_comment(db, ctx.comment)
+    background.add_task(rag_hooks.unindex_comment, comment_id)
