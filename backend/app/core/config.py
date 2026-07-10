@@ -44,6 +44,18 @@ class Settings(BaseSettings):
     # Taille maximale d'un fichier téléversé, en octets (défaut : 10 Mo).
     MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024
 
+    # ---- Chatbot RAG (Qdrant + Mistral) ----
+    # URL interne du service Qdrant (vecteurs). Cf. docker-compose.
+    QDRANT_URL: str = "http://qdrant:6333"
+    # Clé API Mistral ; vide => chatbot désactivé (endpoints en 503).
+    MISTRAL_API_KEY: str = ""
+    MISTRAL_API_BASE: str = "https://api.mistral.ai"
+    MISTRAL_CHAT_MODEL: str = "mistral-small-latest"
+    MISTRAL_EMBED_MODEL: str = "mistral-embed"
+    # Nom de la collection Qdrant et dimension des embeddings mistral-embed.
+    RAG_COLLECTION: str = "jirou_rag"
+    RAG_EMBED_DIM: int = 1024
+
     # ---- Divers ----
     API_V1_PREFIX: str = "/api/v1"
     PROJECT_NAME: str = "Jirou API"

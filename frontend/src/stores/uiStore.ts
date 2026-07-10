@@ -14,10 +14,15 @@ interface UiState {
   closeCreateIssue: () => void;
   setCreateIssueOpen: (open: boolean) => void;
 
-  /** Collapsed state of the app sidebar (JIR-17, responsive). */
+  /** Collapsed (icon-rail) state of the sidebar on desktop (md+). */
   isSidebarCollapsed: boolean;
   toggleSidebar: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
+
+  /** Open state of the mobile navigation drawer (<md). Closed by default. */
+  isMobileNavOpen: boolean;
+  toggleMobileNav: () => void;
+  setMobileNavOpen: (open: boolean) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -30,4 +35,9 @@ export const useUiStore = create<UiState>((set) => ({
   toggleSidebar: () =>
     set((state) => ({ isSidebarCollapsed: !state.isSidebarCollapsed })),
   setSidebarCollapsed: (collapsed) => set({ isSidebarCollapsed: collapsed }),
+
+  isMobileNavOpen: false,
+  toggleMobileNav: () =>
+    set((state) => ({ isMobileNavOpen: !state.isMobileNavOpen })),
+  setMobileNavOpen: (open) => set({ isMobileNavOpen: open }),
 }));

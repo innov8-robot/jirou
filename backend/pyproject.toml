@@ -17,6 +17,9 @@ dependencies = [
     "bcrypt>=4.0,<4.1",
     "python-jose[cryptography]>=3.3",
     "python-multipart>=0.0.9",
+    # Chatbot RAG : client Qdrant (vecteurs) + httpx pour l'API Mistral.
+    "httpx>=0.27",
+    "qdrant-client>=1.9",
 ]
 
 [project.optional-dependencies]

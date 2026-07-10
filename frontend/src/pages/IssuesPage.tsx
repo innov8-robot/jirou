@@ -20,8 +20,10 @@ import { EmptyState } from '@/components/EmptyState';
 import { ErrorState } from '@/components/ErrorState';
 import { ListSkeleton } from '@/components/LoadingSkeletons';
 import { LabelBadge } from '@/features/issues/LabelBadge';
+import { ImportCsvDialog } from '@/features/issues/ImportCsvDialog';
 import { SavedViewsControl } from '@/features/views/SavedViewsControl';
 import { fetchIssues } from '@/features/issues/api';
+import { Upload } from 'lucide-react';
 import type { IssueFilters } from '@/features/issues/types';
 import { useProject } from '@/features/projects/useProject';
 import { ISSUE_STATUSES, ISSUE_TYPES } from '@/lib/issues';
@@ -39,6 +41,7 @@ export default function IssuesPage() {
   const [type, setType] = useState<string>(ALL);
   const [status, setStatus] = useState<string>(ALL);
   const [assignee, setAssignee] = useState<string>(ALL);
+  const [importOpen, setImportOpen] = useState(false);
 
   const filters: IssueFilters = {
     search: search.trim() || undefined,
@@ -110,7 +113,11 @@ export default function IssuesPage() {
         <Button variant="ghost" size="sm" onClick={reset}>
           Réinitialiser
         </Button>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
+            <Upload className="h-4 w-4" />
+            Importer CSV
+          </Button>
           <SavedViewsControl
             projectId={project.id}
             currentFilters={{ search, type, status, assignee }}
@@ -123,6 +130,12 @@ export default function IssuesPage() {
           />
         </div>
       </div>
+
+      <ImportCsvDialog
+        projectId={project.id}
+        open={importOpen}
+        onOpenChange={setImportOpen}
+      />
 
       {query.isLoading && <ListSkeleton />}
       {query.isError && (

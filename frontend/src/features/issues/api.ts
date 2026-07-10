@@ -56,6 +56,31 @@ export async function deleteIssue(key: string): Promise<void> {
   await api.delete(`/issues/${key}`);
 }
 
+// ---- Import CSV ----
+
+export interface ImportResult {
+  created: number;
+  error_count: number;
+  errors: { row: number; message: string }[];
+  issues: Issue[];
+}
+
+export async function importIssuesCsv(
+  projectId: number | string,
+  file: File,
+  epicId?: number | string | null
+): Promise<ImportResult> {
+  const form = new FormData();
+  form.append('file', file);
+  if (epicId != null && epicId !== '') form.append('epic_id', String(epicId));
+  const { data } = await api.post<ImportResult>(
+    `/projects/${projectId}/issues/import`,
+    form,
+    { headers: { 'Content-Type': undefined } }
+  );
+  return data;
+}
+
 // ---- Dépendances (JIR-61) ----
 
 export async function addDependency(

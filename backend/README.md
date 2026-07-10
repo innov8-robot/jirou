@@ -139,6 +139,71 @@ Comptes de démo créés (mot de passe commun `demo_password123`) :
 
 Le script lit `DATABASE_URL` (via `app.core.config.settings`).
 
+## Import CSV de tickets
+
+`POST /api/v1/projects/{project_id}/issues/import` crée des tickets en lot à
+partir d'un fichier CSV (multipart `file`, réservé aux membres non-viewer).
+
+En-tête **obligatoire** (séparateur virgule, UTF-8, noms de colonnes
+insensibles à la casse) :
+
+```
+type,summary,description,priority,story_points,status,labels,assignee_email,epic_key
+```
+
+| Colonne | Requis | Valeurs / format | Défaut |
+|---|---|---|---|
+| `type` | non | `epic` \| `story` \| `task` \| `bug` | `task` |
+| `summary` | **oui** | texte | — |
+| `description` | non | texte / HTML libre | vide |
+| `priority` | non | `highest` \| `high` \| `medium` \| `low` \| `lowest` | `medium` |
+| `story_points` | non | entier (vide → null ; non entier → avertissement + null) | null |
+| `status` | non | `todo` \| `in_progress` \| `in_review` \| `done` | `todo` |
+| `labels` | non | plusieurs séparés par `;` (créés au besoin, réutilisés sinon) | aucun |
+| `assignee_email` | non | email d'un **membre** du projet (sinon avertissement, ticket sans assigné) | aucun |
+| `epic_key` | non | clé d'une epic existante **ou** `summary` d'une epic définie plus haut dans le CSV | aucun |
+
+Règles :
+
+- **Robuste** : chaque ligne est validée seule. Une ligne invalide (`summary`
+  vide, `type`/`status`/`priority` inconnu) est ignorée et listée dans `errors`
+  (avec son numéro de ligne, 1 = première ligne de données) ; les autres lignes
+  sont créées. Les avertissements non bloquants figurent aussi dans `errors`.
+- **Rattachement à une epic** (lignes non-epic), dans l'ordre : (1) `epic_key`
+  = clé d'une epic existante ; (2) sinon `epic_key` = `summary` d'une ligne
+  `type=epic` plus haut dans le même CSV ; (3) sinon le champ de formulaire
+  optionnel `epic_id` (epic cible choisie dans l'UI). Une ligne `epic` ignore
+  tout rattachement. `epic_key` introuvable → avertissement, ticket sans parent.
+- Limite : **1000** lignes de données (au-delà → 400). En-tête manquant ou
+  fichier illisible/vide → 400 ; `epic_id` du formulaire pointant autre chose
+  qu'une epic du projet → 422.
+
+Exemple — une epic suivie de ses deux enfants, importables en un seul CSV :
+
+```
+type,summary,description,priority,story_points,status,labels,assignee_email,epic_key
+epic,Authentification,Gestion des comptes,high,,todo,,,
+story,Page de connexion,Formulaire email + mot de passe,high,5,in_progress,frontend;auth,dev@example.com,Authentification
+bug,Déconnexion cassée,Le bouton ne répond pas,medium,2,todo,auth,,Authentification
+```
+
+Réponse `200` (`ImportResult`) :
+
+```json
+{
+  "created": 3,
+  "error_count": 1,
+  "errors": [
+    { "row": 2, "message": "assignee_email « dev@example.com » n'est pas membre du projet : ticket créé sans assigné." }
+  ],
+  "issues": [
+    { "id": 1, "key": "JIR-1", "type": "epic", "summary": "Authentification", "status": "todo", "epic_id": null, "...": "..." },
+    { "id": 2, "key": "JIR-2", "type": "story", "summary": "Page de connexion", "status": "in_progress", "epic_id": 1, "...": "..." },
+    { "id": 3, "key": "JIR-3", "type": "bug", "summary": "Déconnexion cassée", "status": "todo", "epic_id": 1, "...": "..." }
+  ]
+}
+```
+
 ## Tests & lint
 
 ```bash

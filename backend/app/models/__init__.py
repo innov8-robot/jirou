@@ -10,6 +10,7 @@ from app.models.activity import ActivityLog
 from app.models.attachment import Attachment
 from app.models.comment import Comment
 from app.models.dependency import IssueDependency
+from app.models.document import Document
 from app.models.enums import (
     DependencyType,
     IssuePriority,
@@ -32,6 +33,7 @@ __all__ = [
     "Attachment",
     "Comment",
     "DependencyType",
+    "Document",
     "Issue",
     "IssueDependency",
     "IssuePriority",

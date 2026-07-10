@@ -23,6 +23,7 @@ const TABS: Tab[] = [
   { label: 'Board', to: 'board' },
   { label: 'Backlog', to: 'backlog' },
   { label: 'Timeline', to: 'timeline' },
+  { label: 'Docs', to: 'docs' },
   { label: 'Paramètres', to: 'settings' },
 ];
 

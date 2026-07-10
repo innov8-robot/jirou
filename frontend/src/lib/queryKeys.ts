@@ -58,6 +58,15 @@ export const queryKeys = {
   timeline: {
     view: (projectId: number | string) => ['timeline', projectId] as const,
   },
+  rag: {
+    status: ['rag', 'status'] as const,
+  },
+  documents: {
+    all: ['documents', 'all'] as const,
+    list: (projectId: number | string) =>
+      ['documents', 'list', projectId] as const,
+    detail: (id: number) => ['documents', 'detail', id] as const,
+  },
   comments: {
     list: (issueKey: string) => ['comments', issueKey] as const,
   },

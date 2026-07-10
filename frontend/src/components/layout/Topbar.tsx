@@ -22,11 +22,18 @@ import { useUiStore } from '@/stores/uiStore';
  */
 export function Topbar() {
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
+  const toggleMobileNav = useUiStore((s) => s.toggleMobileNav);
   const openCreateIssue = useUiStore((s) => s.openCreateIssue);
   const { user, isAdmin, logout } = useAuth();
   const navigate = useNavigate();
 
   const displayName = user?.full_name || user?.email || 'Utilisateur';
+
+  // Desktop (md+) : bascule le rail icônes ; mobile : ouvre/ferme le drawer.
+  function handleNavToggle() {
+    if (window.matchMedia('(min-width: 768px)').matches) toggleSidebar();
+    else toggleMobileNav();
+  }
 
   function handleLogout() {
     logout();
@@ -38,7 +45,7 @@ export function Topbar() {
       <Button
         variant="ghost"
         size="icon"
-        onClick={toggleSidebar}
+        onClick={handleNavToggle}
         aria-label="Afficher/masquer la navigation"
       >
         <Menu className="h-5 w-5" />

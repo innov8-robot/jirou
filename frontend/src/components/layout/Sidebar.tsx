@@ -1,7 +1,10 @@
 import { NavLink } from 'react-router-dom';
 import {
+  BarChart3,
+  Bot,
   CalendarRange,
   Columns3,
+  FileText,
   FolderKanban,
   LayoutGrid,
   ListTodo,
@@ -9,6 +12,7 @@ import {
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/features/auth/useAuth';
 import { useUiStore } from '@/stores/uiStore';
 
 interface NavItem {
@@ -33,6 +37,8 @@ const SECTIONS: NavSection[] = [
         icon: LayoutGrid,
       },
       { label: 'Projets', to: '/projects', icon: FolderKanban },
+      { label: 'Documentation', to: '/docs', icon: FileText },
+      { label: 'Assistant', to: '/chat', icon: Bot },
     ],
   },
   {
@@ -57,6 +63,21 @@ const SECTIONS: NavSection[] = [
  */
 export function Sidebar() {
   const collapsed = useUiStore((s) => s.isSidebarCollapsed);
+  const { isAdmin } = useAuth();
+
+  // Le lien "Rapports" n'est visible que pour l'admin global.
+  const sections: NavSection[] = isAdmin
+    ? [
+        {
+          ...SECTIONS[0],
+          items: [
+            ...SECTIONS[0].items,
+            { label: 'Rapports', to: '/reports', icon: BarChart3 },
+          ],
+        },
+        ...SECTIONS.slice(1),
+      ]
+    : SECTIONS;
 
   return (
     <nav
@@ -66,7 +87,7 @@ export function Sidebar() {
         collapsed ? 'w-16 px-2' : 'w-60 px-3'
       )}
     >
-      {SECTIONS.map((section, i) => (
+      {sections.map((section, i) => (
         <div key={section.heading ?? i} className="space-y-1">
           {section.heading && !collapsed && (
             <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wider text-sidebar-foreground/50">

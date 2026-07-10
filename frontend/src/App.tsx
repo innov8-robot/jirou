@@ -11,6 +11,10 @@ import IssueDetailPage from '@/pages/IssueDetailPage';
 import BoardPage from '@/pages/BoardPage';
 import BacklogPage from '@/pages/BacklogPage';
 import TimelinePage from '@/pages/TimelinePage';
+import DocumentsPage from '@/pages/DocumentsPage';
+import GlobalDocsPage from '@/pages/GlobalDocsPage';
+import ChatPage from '@/pages/ChatPage';
+import ReportsPage from '@/pages/ReportsPage';
 import MyWorkPage from '@/pages/MyWorkPage';
 import ProfilePage from '@/pages/ProfilePage';
 import AdminUsersPage from '@/pages/AdminUsersPage';
@@ -48,6 +52,11 @@ export default function App() {
         <Route element={<ProtectedRoute />}>
           <Route element={<AppLayout />}>
             <Route path="/my-work" element={<MyWorkPage />} />
+            <Route path="/docs" element={<GlobalDocsPage />} />
+            <Route path="/chat" element={<ChatPage />} />
+            <Route element={<ProtectedRoute roles={['admin']} />}>
+              <Route path="/reports" element={<ReportsPage />} />
+            </Route>
             <Route path="/projects" element={<ProjectsPage />} />
             <Route path="/projects/:projectId" element={<ProjectLayout />}>
               <Route index element={<ProjectOverviewPage />} />
@@ -56,6 +65,7 @@ export default function App() {
               <Route path="board" element={<BoardPage />} />
               <Route path="backlog" element={<BacklogPage />} />
               <Route path="timeline" element={<TimelinePage />} />
+              <Route path="docs" element={<DocumentsPage />} />
               <Route path="settings" element={<ProjectSettingsPage />} />
             </Route>
             <Route path="/profile" element={<ProfilePage />} />

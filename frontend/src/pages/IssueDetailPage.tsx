@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Upload } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,6 +22,7 @@ import { LabelPicker } from '@/features/issues/LabelPicker';
 import { CommentsSection } from '@/features/comments/CommentsSection';
 import { AttachmentsSection } from '@/features/attachments/AttachmentsSection';
 import { ActivitySection } from '@/features/activity/ActivitySection';
+import { ImportCsvDialog } from '@/features/issues/ImportCsvDialog';
 import {
   addDependency,
   deleteIssue,
@@ -112,6 +113,7 @@ export default function IssueDetailPage() {
   const [description, setDescription] = useState('');
   const [descDirty, setDescDirty] = useState(false);
   const [depTarget, setDepTarget] = useState('');
+  const [importOpen, setImportOpen] = useState(false);
 
   const issue = query.data;
 
@@ -285,6 +287,17 @@ export default function IssueDetailPage() {
                     ({issue.progress.done}/{issue.progress.total})
                   </span>
                 )}
+                {canEdit && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="ml-auto"
+                    onClick={() => setImportOpen(true)}
+                  >
+                    <Upload className="h-4 w-4" />
+                    Importer CSV
+                  </Button>
+                )}
               </h2>
               {issue.children.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Aucun enfant.</p>
@@ -313,6 +326,15 @@ export default function IssueDetailPage() {
           <AttachmentsSection issueKey={issue.key} canEdit={canEdit} />
           <CommentsSection issueKey={issue.key} canComment={canEdit} />
           <ActivitySection issueKey={issue.key} />
+
+          {issue.type === 'epic' && (
+            <ImportCsvDialog
+              projectId={project.id}
+              defaultEpicId={issue.id}
+              open={importOpen}
+              onOpenChange={setImportOpen}
+            />
+          )}
         </div>
 
         {/* ---- Sidebar métadonnées ---- */}

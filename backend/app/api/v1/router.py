@@ -13,10 +13,13 @@ from app.api.v1.endpoints import (
     attachments,
     auth,
     comments,
+    documents,
     issues,
     labels,
     notifications,
     projects,
+    rag,
+    reports,
     saved_views,
     search,
     sprints,
@@ -37,6 +40,7 @@ api_router.include_router(issues.project_router, prefix="/projects", tags=["issu
 api_router.include_router(sprints.project_router, prefix="/projects", tags=["sprints"])
 api_router.include_router(stats.project_router, prefix="/projects", tags=["stats"])
 api_router.include_router(saved_views.project_router, prefix="/projects", tags=["saved-views"])
+api_router.include_router(documents.project_router, prefix="/projects", tags=["documents"])
 # Commentaires, pièces jointes et activité rattachés à une issue (montés sous /issues).
 api_router.include_router(comments.issue_router, prefix="/issues", tags=["comments"])
 api_router.include_router(attachments.issue_router, prefix="/issues", tags=["attachments"])
@@ -50,3 +54,8 @@ api_router.include_router(comments.router, prefix="/comments", tags=["comments"]
 api_router.include_router(attachments.router, prefix="/attachments", tags=["attachments"])
 api_router.include_router(notifications.router, prefix="/notifications", tags=["notifications"])
 api_router.include_router(saved_views.router, prefix="/views", tags=["saved-views"])
+api_router.include_router(documents.router, prefix="/documents", tags=["documents"])
+# Chatbot RAG (EPIC-10) : statut, réindexation, conversation.
+api_router.include_router(rag.router, prefix="/rag", tags=["rag"])
+# Génération de rapports (stats + synthèse LLM), réservée à l'admin global.
+api_router.include_router(reports.router, prefix="/reports", tags=["reports"])

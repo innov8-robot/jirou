@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import (
@@ -28,6 +28,7 @@ from app.models.enums import IssueStatus, IssueType, ProjectRole, UserRole
 from app.models.issue import Issue
 from app.models.project import Project, ProjectMember
 from app.models.user import User
+from app.schemas.import_csv import ImportResult
 from app.schemas.issue import (
     BoardColumn,
     BoardRead,
@@ -50,6 +51,7 @@ from app.schemas.timeline import (
 )
 from app.services import dependency as dependency_service
 from app.services import issue as issue_service
+from app.services import issue_import as issue_import_service
 from app.services import sprint as sprint_service
 from app.services import timeline as timeline_service
 from app.services.dependency import DependencyServiceError
@@ -206,6 +208,41 @@ def create_issue(
     except IssueServiceError as exc:
         _raise_service_error(exc)
     return IssueRead.model_validate(issue)
+
+
+@project_router.post(
+    "/{project_id}/issues/import",
+    response_model=ImportResult,
+    summary="Importer des tickets depuis un CSV",
+)
+def import_issues(
+    db: DbSession,
+    # membre du projet mais PAS viewer.
+    ctx: Annotated[
+        ProjectContext,
+        Depends(require_project_role(ProjectRole.ADMIN, ProjectRole.MEMBER)),
+    ],
+    file: Annotated[UploadFile, File()],
+    epic_id: Annotated[int | None, Form()] = None,
+) -> ImportResult:
+    """Importe des tickets depuis un fichier CSV (multipart ``file``).
+
+    Chaque ligne est validée indépendamment : une ligne invalide est ignorée et
+    signalée dans ``errors`` (avec avertissements non bloquants), les autres sont
+    créées. Le champ de formulaire optionnel ``epic_id`` rattache les lignes qui
+    ne fournissent pas leur propre ``epic_key`` à une epic du projet.
+
+    - 400 si le CSV est illisible/vide, d'en-tête invalide ou trop volumineux ;
+    - 403 si viewer projet, 404 si projet inconnu ;
+    - 422 si ``epic_id`` ne désigne pas une epic du projet.
+    """
+    csv_bytes = file.file.read()
+    try:
+        return issue_import_service.import_issues_from_csv(
+            db, ctx.project, csv_bytes, ctx.current_user, target_epic_id=epic_id
+        )
+    except IssueServiceError as exc:
+        _raise_service_error(exc)
 
 
 @project_router.get(
