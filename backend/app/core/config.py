@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     # Taille maximale d'un fichier téléversé, en octets (défaut : 10 Mo).
     MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024
 
+    # ---- Veille R&D (domaine VEILLE) ----
+    # Taille maximale d'un média de veille (image/vidéo), en octets (défaut : 200 Mo).
+    WATCH_MAX_UPLOAD_SIZE: int = 200 * 1024 * 1024
+
     # ---- Chatbot RAG (Qdrant + Mistral) ----
     # URL interne du service Qdrant (vecteurs). Cf. docker-compose.
     QDRANT_URL: str = "http://qdrant:6333"

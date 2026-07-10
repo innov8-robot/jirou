@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import {
   BarChart3,
   Bot,
@@ -8,6 +8,7 @@ import {
   FolderKanban,
   LayoutGrid,
   ListTodo,
+  Network,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -28,32 +29,12 @@ interface NavSection {
   items: NavItem[];
 }
 
-const SECTIONS: NavSection[] = [
-  {
-    items: [
-      {
-        label: 'Mon travail',
-        to: '/my-work',
-        icon: LayoutGrid,
-      },
-      { label: 'Projets', to: '/projects', icon: FolderKanban },
-      { label: 'Documentation', to: '/docs', icon: FileText },
-      { label: 'Assistant', to: '/chat', icon: Bot },
-    ],
-  },
-  {
-    heading: 'Projet courant',
-    items: [
-      { label: 'Board', to: '/board', icon: Columns3, placeholder: true },
-      { label: 'Backlog', to: '/backlog', icon: ListTodo, placeholder: true },
-      {
-        label: 'Timeline',
-        to: '/timeline',
-        icon: CalendarRange,
-        placeholder: true,
-      },
-    ],
-  },
+const BASE_ITEMS: NavItem[] = [
+  { label: 'Mon travail', to: '/my-work', icon: LayoutGrid },
+  { label: 'Projets', to: '/projects', icon: FolderKanban },
+  { label: 'Documentation', to: '/docs', icon: FileText },
+  { label: 'Veille', to: '/watch', icon: Network },
+  { label: 'Assistant', to: '/chat', icon: Bot },
 ];
 
 /**
@@ -64,20 +45,35 @@ const SECTIONS: NavSection[] = [
 export function Sidebar() {
   const collapsed = useUiStore((s) => s.isSidebarCollapsed);
   const { isAdmin } = useAuth();
+  const { pathname } = useLocation();
 
-  // Le lien "Rapports" n'est visible que pour l'admin global.
-  const sections: NavSection[] = isAdmin
-    ? [
+  // Projet ouvert dans l'URL (ex. /projects/202/board) → section contextuelle.
+  const projectMatch = pathname.match(/^\/projects\/([^/]+)/);
+  const projectId = projectMatch ? projectMatch[1] : null;
+
+  const items = isAdmin
+    ? [...BASE_ITEMS, { label: 'Rapports', to: '/reports', icon: BarChart3 }]
+    : BASE_ITEMS;
+
+  const sections: NavSection[] = [{ items }];
+  if (projectId) {
+    sections.push({
+      heading: 'Projet courant',
+      items: [
+        { label: 'Board', to: `/projects/${projectId}/board`, icon: Columns3 },
         {
-          ...SECTIONS[0],
-          items: [
-            ...SECTIONS[0].items,
-            { label: 'Rapports', to: '/reports', icon: BarChart3 },
-          ],
+          label: 'Backlog',
+          to: `/projects/${projectId}/backlog`,
+          icon: ListTodo,
         },
-        ...SECTIONS.slice(1),
-      ]
-    : SECTIONS;
+        {
+          label: 'Timeline',
+          to: `/projects/${projectId}/timeline`,
+          icon: CalendarRange,
+        },
+      ],
+    });
+  }
 
   return (
     <nav

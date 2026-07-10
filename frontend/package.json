@@ -35,6 +35,7 @@
     "react-dom": "^18.3.1",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^6.29.0",
+    "reactflow": "^11.11.4",
     "remark-gfm": "^4.0.1",
     "sonner": "^2.0.7",
     "tailwind-merge": "^2.6.0",

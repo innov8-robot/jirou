@@ -20,6 +20,8 @@ from app.models.enums import (
     ProjectRole,
     SprintStatus,
     UserRole,
+    WatchMediaKind,
+    WatchStatus,
 )
 from app.models.issue import Issue, Label, issue_labels
 from app.models.notification import Notification
@@ -27,6 +29,7 @@ from app.models.project import Project, ProjectMember
 from app.models.saved_view import SavedView
 from app.models.sprint import Sprint
 from app.models.user import User
+from app.models.watch import WatchComment, WatchMedia, WatchNode
 
 __all__ = [
     "ActivityLog",
@@ -50,5 +53,10 @@ __all__ = [
     "SprintStatus",
     "User",
     "UserRole",
+    "WatchComment",
+    "WatchMedia",
+    "WatchMediaKind",
+    "WatchNode",
+    "WatchStatus",
     "issue_labels",
 ]

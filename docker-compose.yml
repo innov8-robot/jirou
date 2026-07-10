@@ -58,6 +58,9 @@ services:
       MISTRAL_CHAT_MODEL: ${MISTRAL_CHAT_MODEL:-mistral-small-latest}
       MISTRAL_EMBED_MODEL: ${MISTRAL_EMBED_MODEL:-mistral-embed}
       RAG_COLLECTION: ${RAG_COLLECTION:-jirou_rag}
+      # ---- Uploads (pièces jointes / médias de veille) ----
+      MAX_UPLOAD_SIZE: ${MAX_UPLOAD_SIZE:-10485760}
+      WATCH_MAX_UPLOAD_SIZE: ${WATCH_MAX_UPLOAD_SIZE:-209715200}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:

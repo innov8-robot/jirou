@@ -84,6 +84,51 @@ class NotificationType(enum.StrEnum):
     ASSIGNMENT = "assignment"
 
 
+class WatchStatus(enum.StrEnum):
+    """Statut d'un nœud de veille R&D (domaine VEILLE).
+
+    - ``to_test``     : piste identifiée, à évaluer.
+    - ``in_progress`` : exploration en cours.
+    - ``promising``   : prometteur, à approfondir.
+    - ``abandoned``   : écarté.
+    """
+
+    TO_TEST = "to_test"
+    IN_PROGRESS = "in_progress"
+    PROMISING = "promising"
+    ABANDONED = "abandoned"
+
+
+class WatchMediaKind(enum.StrEnum):
+    """Nature d'un média rattaché à un nœud de veille (domaine VEILLE).
+
+    - ``image`` : fichier image téléversé.
+    - ``video`` : fichier vidéo téléversé.
+    - ``link``  : lien externe (ex. YouTube) — porté par ``url``.
+    """
+
+    IMAGE = "image"
+    VIDEO = "video"
+    LINK = "link"
+
+
+class WatchNodeType(enum.StrEnum):
+    """Type d'un nœud de veille R&D (domaine VEILLE).
+
+    Permet de catégoriser les nœuds « custom » côté frontend.
+
+    - ``theme``    : thème/axe de veille (valeur par défaut).
+    - ``techno``   : technologie explorée.
+    - ``solution`` : solution/produit identifié.
+    - ``resource`` : ressource (article, documentation, etc.).
+    """
+
+    THEME = "theme"
+    TECHNO = "techno"
+    SOLUTION = "solution"
+    RESOURCE = "resource"
+
+
 class ProjectRole(enum.StrEnum):
     """Rôle d'un utilisateur **au sein d'un projet** (EPIC-04).
 

@@ -61,6 +61,11 @@ export const queryKeys = {
   rag: {
     status: ['rag', 'status'] as const,
   },
+  watch: {
+    nodes: ['watch', 'nodes'] as const,
+    node: (id: number) => ['watch', 'node', id] as const,
+    comments: (id: number) => ['watch', 'comments', id] as const,
+  },
   documents: {
     all: ['documents', 'all'] as const,
     list: (projectId: number | string) =>

@@ -15,6 +15,7 @@ import DocumentsPage from '@/pages/DocumentsPage';
 import GlobalDocsPage from '@/pages/GlobalDocsPage';
 import ChatPage from '@/pages/ChatPage';
 import ReportsPage from '@/pages/ReportsPage';
+import WatchPage from '@/pages/WatchPage';
 import MyWorkPage from '@/pages/MyWorkPage';
 import ProfilePage from '@/pages/ProfilePage';
 import AdminUsersPage from '@/pages/AdminUsersPage';
@@ -54,6 +55,7 @@ export default function App() {
             <Route path="/my-work" element={<MyWorkPage />} />
             <Route path="/docs" element={<GlobalDocsPage />} />
             <Route path="/chat" element={<ChatPage />} />
+            <Route path="/watch" element={<WatchPage />} />
             <Route element={<ProtectedRoute roles={['admin']} />}>
               <Route path="/reports" element={<ReportsPage />} />
             </Route>

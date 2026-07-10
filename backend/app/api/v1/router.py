@@ -25,6 +25,7 @@ from app.api.v1.endpoints import (
     sprints,
     stats,
     users,
+    watch,
 )
 
 api_router = APIRouter()
@@ -59,3 +60,5 @@ api_router.include_router(documents.router, prefix="/documents", tags=["document
 api_router.include_router(rag.router, prefix="/rag", tags=["rag"])
 # Génération de rapports (stats + synthèse LLM), réservée à l'admin global.
 api_router.include_router(reports.router, prefix="/reports", tags=["reports"])
+# Veille R&D (domaine VEILLE) : arbre/graphe de connaissances, médias, commentaires.
+api_router.include_router(watch.router, prefix="/watch", tags=["watch"])
