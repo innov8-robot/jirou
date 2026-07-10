@@ -1,0 +1,64 @@
+# ============================================================
+# Jirou — orchestration dev (db + backend + frontend)
+# Usage : cp .env.example .env && docker compose up --build
+# ============================================================
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: jirou-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-jirou}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jirou_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-jirou}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-jirou} -d ${POSTGRES_DB:-jirou}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+    container_name: jirou-backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-jirou}:${POSTGRES_PASSWORD:-jirou_dev_password}@db:5432/${POSTGRES_DB:-jirou}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      # Hot-reload en dev : le code local prime sur celui de l'image.
+      - ./backend:/app
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: jirou-frontend
+    depends_on:
+      - backend
+    environment:
+      # URL vue par le NAVIGATEUR (pas le réseau interne Docker).
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    volumes:
+      - ./frontend:/app
+      # Volume anonyme : préserve les node_modules du conteneur.
+      - /app/node_modules
+    restart: unless-stopped
+
+volumes:
+  pgdata:

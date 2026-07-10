@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend (lint + tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: jirou
+          POSTGRES_PASSWORD: jirou_dev_password
+          POSTGRES_DB: jirou
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U jirou -d jirou"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://jirou:jirou_dev_password@localhost:5432/jirou
+      JWT_SECRET_KEY: ci-secret
+      CORS_ORIGINS: http://localhost:5173
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Lint (ruff)
+        run: |
+          ruff check .
+          ruff format --check .
+      - name: Migrations
+        run: alembic upgrade head
+      - name: Tests (pytest)
+        run: pytest
+
+  frontend:
+    name: Frontend (lint + tests + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint (ESLint)
+        run: npm run lint
+      - name: Tests (Vitest)
+        run: npm run test
+      - name: Build
+        run: npm run build
+
+  e2e:
+    name: E2E (stack complète via docker compose)
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Prépare l'environnement
+        run: cp .env.example .env
+      - name: Démarre la stack
+        run: docker compose up -d --build
+      - name: Attends que le backend soit prêt
+        run: |
+          for _ in $(seq 1 60); do
+            curl -sf http://localhost:8010/health && break
+            sleep 2
+          done
+      - name: Installe les dépendances e2e
+        run: pip install -r e2e/requirements.txt
+      - name: Tests e2e
+        run: pytest e2e/ -v
+      - name: Logs si échec
+        if: failure()
+        run: docker compose logs
+      - name: Arrête la stack
+        if: always()
+        run: docker compose down -v

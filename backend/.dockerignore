@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Outils / IDE / OS
+.vscode/
+.idea/
+.git/
+.gitignore
+.DS_Store
+
+# Docs / tests non nécessaires au runtime
+tests/
+README.md

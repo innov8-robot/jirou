@@ -1,0 +1,5 @@
+- chatbot sur les ticket, rag qdrant, llm api mistral, encoder mistral ou huggingface bge.
+- un onglet documentation, ou je peux ajouter des document au format mardown
+- generation de stat et rapport automatique (avec llm pour le rapport).
+- importer les ticket dans une epique avec tout par csv. j'ai un exemple de format je le donne a une idée je lui explique les ticker que je veux il format tout bien j'import et ca me met tout deja fait dans le backlog
+- rendre le site responsive pour telephone
