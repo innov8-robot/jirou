@@ -41,6 +41,8 @@ const EMPTY_FORM = {
   priority: 'medium' as Priority,
   summary: '',
   description: '',
+  startDate: '',
+  dueDate: '',
 };
 
 /**
@@ -68,6 +70,8 @@ export function CreateIssueModal() {
         summary: form.summary.trim(),
         description: form.description.trim() || undefined,
         priority: form.priority,
+        start_date: form.startDate || undefined,
+        due_date: form.dueDate || undefined,
       }),
     onSuccess: (issue) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.issues.all });
@@ -185,6 +189,31 @@ export function CreateIssueModal() {
               required
               autoFocus
             />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="issue-start-date">Date de début</Label>
+              <Input
+                id="issue-start-date"
+                type="date"
+                value={form.startDate}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, startDate: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="issue-due-date">Échéance</Label>
+              <Input
+                id="issue-due-date"
+                type="date"
+                value={form.dueDate}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, dueDate: e.target.value }))
+                }
+              />
+            </div>
           </div>
 
           <div className="space-y-1.5">

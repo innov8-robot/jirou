@@ -273,10 +273,22 @@ function Bar({
   const [delta, setDelta] = useState({ start: 0, end: 0 });
 
   if (!start && !due) {
+    if (!canEdit) {
+      return (
+        <span className="flex h-full items-center pl-2 text-xs text-muted-foreground/50">
+          pas de dates
+        </span>
+      );
+    }
+    const t0 = startOfDay(new Date());
     return (
-      <span className="flex h-full items-center pl-2 text-xs text-muted-foreground/50">
-        pas de dates
-      </span>
+      <button
+        type="button"
+        onClick={() => onCommit(issue.key, toISO(t0), toISO(addDays(t0, 7)))}
+        className="flex h-full items-center pl-2 text-xs text-muted-foreground/60 hover:text-primary hover:underline"
+      >
+        + définir des dates
+      </button>
     );
   }
   const s = start ?? due!;

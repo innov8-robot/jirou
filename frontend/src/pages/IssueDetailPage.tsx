@@ -454,6 +454,15 @@ export default function IssueDetailPage() {
             />
           </Field>
 
+          <Field label="Date de début">
+            <Input
+              type="date"
+              disabled={!canEdit}
+              value={issue.start_date ?? ''}
+              onChange={(e) => patch({ start_date: e.target.value || null })}
+            />
+          </Field>
+
           <Field label="Échéance">
             <Input
               type="date"
