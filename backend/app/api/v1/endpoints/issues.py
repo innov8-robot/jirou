@@ -22,6 +22,7 @@ from fastapi import (
     Form,
     HTTPException,
     Query,
+    Response,
     UploadFile,
     status,
 )
@@ -62,6 +63,7 @@ from app.schemas.timeline import (
 from app.services import comment as comment_service
 from app.services import dependency as dependency_service
 from app.services import issue as issue_service
+from app.services import issue_export as issue_export_service
 from app.services import issue_import as issue_import_service
 from app.services import rag_hooks
 from app.services import sprint as sprint_service
@@ -302,6 +304,55 @@ def list_issues(
     except IssueServiceError as exc:
         _raise_service_error(exc)
     return [IssueRead.model_validate(issue) for issue in issues]
+
+
+@project_router.get(
+    "/{project_id}/issues/export",
+    summary="Exporter les tickets d'un projet (CSV)",
+)
+def export_issues(
+    db: DbSession,
+    ctx: Annotated[ProjectContext, Depends(get_project_membership)],
+    type: Annotated[IssueType | None, Query()] = None,
+    status: Annotated[IssueStatus | None, Query()] = None,
+    assignee_id: Annotated[int | None, Query()] = None,
+    label_id: Annotated[int | None, Query()] = None,
+    epic_id: Annotated[int | None, Query()] = None,
+    sprint_id: Annotated[int | None, Query()] = None,
+    search: Annotated[str | None, Query()] = None,
+    sort: Annotated[str | None, Query()] = None,
+) -> Response:
+    """Renvoie les tickets du projet en CSV (fichier réimportable).
+
+    Mêmes filtres que la liste des tickets, mais **sans pagination** : le fichier
+    porte tout le sous-ensemble filtré. Les colonnes reprennent l'en-tête de
+    l'import CSV, enrichi de contexte en lecture seule (clé, sprint, rapporteur,
+    dates) — cf. :mod:`app.services.issue_export`.
+
+    Réservé aux membres du projet (403 non-membre, 404 projet inconnu) ; 422 si
+    ``sort`` est inconnu.
+    """
+    try:
+        content = issue_export_service.export_issues_to_csv(
+            db,
+            ctx.project,
+            type=type,
+            status=status,
+            assignee_id=assignee_id,
+            label_id=label_id,
+            epic_id=epic_id,
+            sprint_id=sprint_id,
+            search=search,
+            sort=sort,
+        )
+    except IssueServiceError as exc:
+        _raise_service_error(exc)
+    filename = issue_export_service.export_filename(ctx.project)
+    return Response(
+        content=content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @project_router.get(

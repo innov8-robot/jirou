@@ -1,3 +1,5 @@
+import { saveBlob } from '@/lib/download';
+
 /** Modèle CSV d'import de tickets (entête + exemples). */
 export const CSV_HEADER =
   'type,summary,description,priority,story_points,status,labels,assignee_email,epic_key';
@@ -12,12 +14,5 @@ bug,Le bouton ne répond pas,,highest,2,todo,frontend,,Authentification
 /** Déclenche le téléchargement du modèle CSV. */
 export function downloadCsvTemplate(): void {
   const blob = new Blob([CSV_TEMPLATE], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'jirou-import-modele.csv';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  saveBlob(blob, 'jirou-import-modele.csv');
 }

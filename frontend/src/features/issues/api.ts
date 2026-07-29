@@ -1,4 +1,5 @@
 import api from '@/lib/api';
+import { filenameFromDisposition, saveBlob } from '@/lib/download';
 import type {
   CreateIssuePayload,
   Issue,
@@ -7,6 +8,15 @@ import type {
   Label,
   UpdateIssuePayload,
 } from './types';
+
+/** Retire les filtres vides avant de les passer en query params. */
+function toParams(filters: IssueFilters): Record<string, unknown> {
+  const params: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(filters)) {
+    if (v !== undefined && v !== '') params[k] = v;
+  }
+  return params;
+}
 
 export async function createIssue(
   projectId: number | string,
@@ -23,14 +33,30 @@ export async function fetchIssues(
   projectId: number | string,
   filters: IssueFilters = {}
 ): Promise<Issue[]> {
-  const params: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(filters)) {
-    if (v !== undefined && v !== '') params[k] = v;
-  }
   const { data } = await api.get<Issue[]>(`/projects/${projectId}/issues`, {
-    params,
+    params: toParams(filters),
   });
   return data;
+}
+
+/**
+ * Exporte les tickets du projet en CSV et déclenche l'enregistrement du
+ * fichier. Les `filters` sont ceux de la liste : le fichier porte donc
+ * exactement les tickets affichés, sans pagination. Retourne le nom utilisé.
+ */
+export async function exportIssuesCsv(
+  projectId: number | string,
+  filters: IssueFilters = {}
+): Promise<string> {
+  const res = await api.get(`/projects/${projectId}/issues/export`, {
+    params: toParams(filters),
+    responseType: 'blob',
+  });
+  const filename =
+    filenameFromDisposition(res.headers['content-disposition'] as string) ??
+    'tickets.csv';
+  saveBlob(res.data as Blob, filename);
+  return filename;
 }
 
 export async function fetchIssue(key: string): Promise<IssueDetail> {

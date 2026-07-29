@@ -206,9 +206,12 @@ def list_issues(
     search: str | None = None,
     sort: str | None = None,
     skip: int = 0,
-    limit: int = 50,
+    limit: int | None = 50,
 ) -> list[Issue]:
     """Liste filtrée/triée/paginée des tickets d'un projet (JIR-33).
+
+    ``limit=None`` retire la pagination et renvoie tous les tickets filtrés —
+    utilisé par l'export CSV, qui doit porter le lot complet et non une page.
 
     Requête optimisée : labels préchargés (``selectinload``), assigné et
     rapporteur joints (``joinedload``) — pas de N+1.
@@ -243,7 +246,9 @@ def list_issues(
         )
 
     stmt = _apply_sort(stmt, sort)
-    stmt = stmt.offset(skip).limit(limit)
+    stmt = stmt.offset(skip)
+    if limit is not None:
+        stmt = stmt.limit(limit)
     return list(db.execute(stmt).unique().scalars().all())
 
 

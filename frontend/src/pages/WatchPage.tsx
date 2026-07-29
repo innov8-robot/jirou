@@ -11,7 +11,7 @@ import ReactFlow, {
   type Node,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { Network, Plus } from 'lucide-react';
+import { Download, Network, Plus, Upload } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/EmptyState';
@@ -19,8 +19,10 @@ import { WatchGraphNode } from '@/features/watch/WatchGraphNode';
 import { WatchCenterNode } from '@/features/watch/WatchCenterNode';
 import { FloatingEdge } from '@/features/watch/FloatingEdge';
 import { WatchNodePanel } from '@/features/watch/WatchNodePanel';
+import { WatchImportDialog } from '@/features/watch/WatchImportDialog';
 import {
   createNode,
+  exportWatchArchive,
   fetchNodes,
   updateNode,
   type WatchNodeSummary,
@@ -73,6 +75,7 @@ function toRf(summaries: WatchNodeSummary[]): { nodes: Node[]; edges: Edge[] } {
 function WatchInner() {
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   const { data: summaries = [], isLoading } = useQuery({
     queryKey: queryKeys.watch.nodes,
@@ -114,6 +117,12 @@ function WatchInner() {
       setSelectedId(node.id);
     },
     onError: (err) => toast.error('Échec', getErrorMessage(err)),
+  });
+  const exportMut = useMutation({
+    mutationFn: exportWatchArchive,
+    onSuccess: (filename) => toast.success('Export prêt', filename),
+    onError: () =>
+      toast.error('Export échoué', "L'archive n'a pas pu être générée."),
   });
 
   function addRoot() {
@@ -160,10 +169,24 @@ function WatchInner() {
   return (
     <div className="flex h-full">
       <div className="relative flex-1">
-        <div className="absolute left-3 top-3 z-10">
+        <div className="absolute left-3 top-3 z-10 flex flex-wrap gap-2">
           <Button size="sm" onClick={addRoot} disabled={createMut.isPending}>
             <Plus className="h-4 w-4" />
             Nouveau thème
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => exportMut.mutate()}
+            disabled={exportMut.isPending}
+            title="Télécharger toute la veille (arbre, notes, liens, fichiers)"
+          >
+            <Download className="h-4 w-4" />
+            {exportMut.isPending ? 'Export…' : 'Exporter'}
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setImportOpen(true)}>
+            <Upload className="h-4 w-4" />
+            Importer
           </Button>
         </div>
 
@@ -172,7 +195,7 @@ function WatchInner() {
             <EmptyState
               icon={Network}
               title="Aucun nœud"
-              description="Créez un premier thème (ex. Mocap suit, Téléopération) pour démarrer votre veille."
+              description="Créez un premier thème (ex. Mocap suit, Téléopération) pour démarrer votre veille, ou importez une archive existante."
               actionLabel="Nouveau thème"
               onAction={addRoot}
             />
@@ -214,6 +237,8 @@ function WatchInner() {
           onAddChild={addChild}
         />
       )}
+
+      <WatchImportDialog open={importOpen} onOpenChange={setImportOpen} />
     </div>
   );
 }

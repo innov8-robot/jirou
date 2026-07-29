@@ -1,4 +1,5 @@
 import api from '@/lib/api';
+import { filenameFromDisposition, saveBlob } from '@/lib/download';
 import type { MiniUser } from '@/features/issues/types';
 
 export type WatchStatus =
@@ -173,6 +174,51 @@ export async function fetchMediaBlobUrl(id: number): Promise<string> {
     responseType: 'blob',
   });
   return URL.createObjectURL(res.data as Blob);
+}
+
+// ---- Export / import (archive ZIP) ----
+export interface WatchImportError {
+  ref: string | null;
+  message: string;
+}
+
+export interface WatchImportResult {
+  nodes_created: number;
+  media_created: number;
+  comments_created: number;
+  replaced: boolean;
+  error_count: number;
+  errors: WatchImportError[];
+}
+
+/**
+ * Télécharge l'archive ZIP de la veille (arbre + médias) et déclenche
+ * l'enregistrement du fichier côté navigateur. Retourne le nom utilisé.
+ */
+export async function exportWatchArchive(): Promise<string> {
+  const res = await api.get('/watch/export', { responseType: 'blob' });
+  const filename =
+    filenameFromDisposition(res.headers['content-disposition'] as string) ??
+    'veille.zip';
+  saveBlob(res.data as Blob, filename);
+  return filename;
+}
+
+/**
+ * Importe une archive de veille. `replace` supprime la veille existante avant
+ * l'import (réservé aux admins côté serveur) ; sinon l'import est additif.
+ */
+export async function importWatchArchive(
+  file: File,
+  replace: boolean
+): Promise<WatchImportResult> {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('replace', String(replace));
+  const { data } = await api.post<WatchImportResult>('/watch/import', form, {
+    headers: { 'Content-Type': undefined },
+  });
+  return data;
 }
 
 // ---- Commentaires ----

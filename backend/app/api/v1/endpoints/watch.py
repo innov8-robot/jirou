@@ -10,14 +10,16 @@ Familles de routes (préfixe ``/api/v1/watch``) :
   à la suppression, détection de cycle au changement de parent) ;
 - ``/watch/nodes/{id}/media`` et ``/watch/media/{id}`` : médias (upload image/vidéo,
   lien externe, téléchargement sécurisé anti-traversal, suppression) ;
-- ``/watch/nodes/{id}/comments`` et ``/watch/comments/{id}`` : fil de commentaires.
+- ``/watch/nodes/{id}/comments`` et ``/watch/comments/{id}`` : fil de commentaires ;
+- ``/watch/export`` et ``/watch/import`` : archive ZIP complète (arbre + fichiers),
+  l'écrasement de la veille existante (``replace``) étant réservé aux admins.
 """
 
 from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -40,7 +42,9 @@ from app.schemas.watch import (
     WatchNodeSummary,
     WatchNodeUpdate,
 )
+from app.schemas.watch_transfer import WatchImportResult
 from app.services import watch as watch_service
+from app.services import watch_transfer as transfer_service
 from app.services.watch import WatchServiceError
 
 router = APIRouter()
@@ -59,6 +63,7 @@ _ERROR_STATUS = {
     "too_large": status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
     "unsupported_media_type": status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
     "cycle": status.HTTP_422_UNPROCESSABLE_ENTITY,
+    "bad_archive": status.HTTP_400_BAD_REQUEST,
 }
 
 
@@ -220,6 +225,82 @@ def delete_node(node: NodeDep, current_user: CurrentUser, db: DbSession) -> None
     """Supprime un nœud et son sous-arbre. Réservé au créateur ou à un admin global."""
     _require_owner_or_admin(node.created_by_id, current_user, "Suppression")
     watch_service.delete_node(db, node)
+
+
+# --------------------------------------------------------------------------- #
+# Export / import (archive ZIP)
+# --------------------------------------------------------------------------- #
+@router.get("/export", summary="Exporter toute la veille (archive ZIP)")
+def export_watch(current_user: CurrentUser, db: DbSession) -> Response:
+    """Renvoie une archive ZIP contenant ``veille.json`` et les fichiers ``media/``.
+
+    L'archive porte l'arbre complet (titres, types, statuts, positions, notes,
+    liens externes, commentaires) et les images/vidéos téléversées ; elle est
+    réimportable telle quelle via ``POST /watch/import``.
+    """
+    content = transfer_service.export_archive(db, source=settings.PROJECT_NAME)
+    filename = transfer_service.export_filename()
+    return Response(
+        content=content,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _read_bounded(file: UploadFile) -> bytes:
+    """Lit l'archive téléversée en bornant sa taille (413 au-delà)."""
+    max_size = settings.WATCH_MAX_IMPORT_SIZE
+    chunks: list[bytes] = []
+    size = 0
+    while True:
+        chunk = file.file.read(1024 * 1024)
+        if not chunk:
+            break
+        size += len(chunk)
+        if size > max_size:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"Archive trop volumineuse (maximum {max_size} octets).",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+@router.post(
+    "/import",
+    response_model=WatchImportResult,
+    summary="Importer une archive de veille (ZIP)",
+)
+def import_watch(
+    current_user: CurrentUser,
+    db: DbSession,
+    file: Annotated[UploadFile, File()],
+    replace: Annotated[bool, Form()] = False,
+) -> WatchImportResult:
+    """Importe une archive produite par ``GET /watch/export`` (multipart ``file``).
+
+    Par défaut l'import est **additif** : les nœuds de l'archive s'ajoutent à la
+    veille existante avec de nouveaux identifiants. Avec ``replace=true``, la
+    veille existante (nœuds, médias, commentaires) est supprimée au préalable —
+    opération réservée à un **admin global**.
+
+    L'import est robuste : un nœud, un média ou un lien invalide est ignoré et
+    signalé dans ``errors``, le reste du lot est créé.
+
+    - 400 si l'archive est illisible, d'une version inconnue ou trop de nœuds ;
+    - 403 si ``replace`` est demandé par un non-admin ;
+    - 413 si l'archive dépasse ``WATCH_MAX_IMPORT_SIZE``.
+    """
+    if replace and current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Le remplacement de la veille existante est réservé à un admin global.",
+        )
+    payload = _read_bounded(file)
+    try:
+        return transfer_service.import_archive(db, payload, current_user, replace=replace)
+    except WatchServiceError as exc:
+        raise _http_error(exc) from exc
 
 
 # --------------------------------------------------------------------------- #

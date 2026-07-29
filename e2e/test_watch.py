@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import io
+import json
+import zipfile
+
 import httpx
 
 from conftest import unique_email
@@ -117,3 +121,69 @@ def test_delete_cascade_and_permission(api: httpx.Client, new_user: dict) -> Non
     nodes = api.get('/watch/nodes', headers=h).json()
     ids = {n['id'] for n in nodes}
     assert a['id'] not in ids and b['id'] not in ids
+
+
+def test_export_import_round_trip(api: httpx.Client, new_user: dict) -> None:
+    """Export ZIP puis réimport additif : l'arbre et le fichier sont restitués.
+
+    Le mode ``replace`` n'est pas testé ici : la veille est globale et
+    l'écraser casserait les autres tests de la suite.
+    """
+    h = new_user['auth_header']
+    payload = b'\x89PNG\r\n\x1a\n fake-export'
+    root = api.post('/watch/nodes', headers=h, json={'title': 'Export E2E'}).json()
+    child = api.post(
+        '/watch/nodes',
+        headers=h,
+        json={'title': 'Enfant export', 'parent_id': root['id'], 'note': 'Note'},
+    ).json()
+    api.post(
+        f"/watch/nodes/{child['id']}/media",
+        headers=h,
+        files={'file': ('export.png', payload, 'image/png')},
+    )
+    api.post(
+        f"/watch/nodes/{child['id']}/comments", headers=h, json={'body': 'Commentaire'}
+    )
+
+    export = api.get('/watch/export', headers=h)
+    assert export.status_code == 200, export.text
+    assert export.headers['content-type'] == 'application/zip'
+    archive = export.content
+
+    with zipfile.ZipFile(io.BytesIO(archive)) as zf:
+        manifest = json.loads(zf.read('veille.json'))
+    # L'archive contient toute la veille : on n'y réimporte que notre sous-arbre.
+    refs = {str(root['id']), str(child['id'])}
+    manifest['nodes'] = [n for n in manifest['nodes'] if n['ref'] in refs]
+    assert len(manifest['nodes']) == 2
+    media_paths = {
+        m['path'] for n in manifest['nodes'] for m in n['media'] if m['path']
+    }
+    assert media_paths
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(archive)) as src, zipfile.ZipFile(
+        buffer, 'w'
+    ) as out:
+        out.writestr('veille.json', json.dumps(manifest))
+        for path in media_paths:
+            out.writestr(path, src.read(path))
+
+    imported = api.post(
+        '/watch/import',
+        headers=h,
+        files={'file': ('veille.zip', buffer.getvalue(), 'application/zip')},
+        data={'replace': 'false'},
+    )
+    assert imported.status_code == 200, imported.text
+    result = imported.json()
+    assert result['nodes_created'] == 2
+    assert result['media_created'] == 1
+    assert result['comments_created'] == 1
+    assert result['replaced'] is False
+
+    # Le sous-arbre est bien dupliqué (originaux + copies).
+    titles = [n['title'] for n in api.get('/watch/nodes', headers=h).json()]
+    assert titles.count('Export E2E') >= 2
+    assert titles.count('Enfant export') >= 2

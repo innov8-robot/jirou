@@ -19,12 +19,17 @@ app = FastAPI(
 )
 
 # CORS configuré depuis la liste d'origines de la config.
+# ``expose_headers`` : le front étant sur une autre origine que l'API, le
+# navigateur ne laisse lire ``Content-Disposition`` que s'il est explicitement
+# exposé — nécessaire pour reprendre le nom de fichier proposé lors d'un
+# téléchargement (ex. l'archive d'export de la veille).
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
 )
 
 # Routes métier versionnées sous /api/v1.
