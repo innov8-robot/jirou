@@ -11,15 +11,15 @@ Familles de routes (préfixe ``/api/v1/watch``) :
 - ``/watch/nodes/{id}/media`` et ``/watch/media/{id}`` : médias (upload image/vidéo,
   lien externe, téléchargement sécurisé anti-traversal, suppression) ;
 - ``/watch/nodes/{id}/comments`` et ``/watch/comments/{id}`` : fil de commentaires ;
-- ``/watch/export`` et ``/watch/import`` : archive ZIP complète (arbre + fichiers),
-  l'écrasement de la veille existante (``replace``) étant réservé aux admins.
+- ``/watch/export`` : archive ZIP complète (arbre + fichiers), pour sauvegarde ;
+- ``/watch/nodes/{id}/import`` : greffe une branche sous un nœud depuis un CSV.
 """
 
 from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -42,8 +42,9 @@ from app.schemas.watch import (
     WatchNodeSummary,
     WatchNodeUpdate,
 )
-from app.schemas.watch_transfer import WatchImportResult
+from app.schemas.watch_csv import WatchCsvImportResult
 from app.services import watch as watch_service
+from app.services import watch_csv as watch_csv_service
 from app.services import watch_transfer as transfer_service
 from app.services.watch import WatchServiceError
 
@@ -137,8 +138,15 @@ def _serialize_node(node: WatchNode) -> WatchNodeRead:
 # --------------------------------------------------------------------------- #
 # Dépendances locales : résolution par identifiant
 # --------------------------------------------------------------------------- #
-def get_node_or_404(node_id: int, db: DbSession) -> WatchNode:
-    """Résout un nœud par identifiant (404 sinon)."""
+def get_node_or_404(node_id: int, current_user: CurrentUser, db: DbSession) -> WatchNode:
+    """Résout un nœud par identifiant (404 sinon), **après** authentification.
+
+    Dépendre de ``CurrentUser`` ici n'est pas décoratif : sans cela, la
+    résolution du nœud précède le contrôle du jeton et un appelant anonyme
+    distingue un 404 (nœud absent) d'un 401 (nœud existant) — de quoi énumérer
+    les identifiants de la veille. L'ordre est ainsi garanti pour **toutes** les
+    routes qui utilisent ``NodeDep``.
+    """
     node = watch_service.get_node(db, node_id)
     if node is None:
         raise _NODE_NOT_FOUND
@@ -228,8 +236,26 @@ def delete_node(node: NodeDep, current_user: CurrentUser, db: DbSession) -> None
 
 
 # --------------------------------------------------------------------------- #
-# Export / import (archive ZIP)
+# Export (archive ZIP) & import CSV ancré
 # --------------------------------------------------------------------------- #
+def _read_bounded(file: UploadFile, max_size: int, label: str) -> bytes:
+    """Lit un fichier téléversé en bornant sa taille (413 au-delà)."""
+    chunks: list[bytes] = []
+    size = 0
+    while True:
+        chunk = file.file.read(1024 * 1024)
+        if not chunk:
+            break
+        size += len(chunk)
+        if size > max_size:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"{label} trop volumineux (maximum {max_size} octets).",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 @router.get("/export", summary="Exporter toute la veille (archive ZIP)")
 def export_watch(current_user: CurrentUser, db: DbSession) -> Response:
     """Renvoie une archive ZIP contenant ``veille.json`` et les fichiers ``media/``.
@@ -247,58 +273,34 @@ def export_watch(current_user: CurrentUser, db: DbSession) -> Response:
     )
 
 
-def _read_bounded(file: UploadFile) -> bytes:
-    """Lit l'archive téléversée en bornant sa taille (413 au-delà)."""
-    max_size = settings.WATCH_MAX_IMPORT_SIZE
-    chunks: list[bytes] = []
-    size = 0
-    while True:
-        chunk = file.file.read(1024 * 1024)
-        if not chunk:
-            break
-        size += len(chunk)
-        if size > max_size:
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail=f"Archive trop volumineuse (maximum {max_size} octets).",
-            )
-        chunks.append(chunk)
-    return b"".join(chunks)
-
-
 @router.post(
-    "/import",
-    response_model=WatchImportResult,
-    summary="Importer une archive de veille (ZIP)",
+    "/nodes/{node_id}/import",
+    response_model=WatchCsvImportResult,
+    summary="Importer des sous-nœuds sous un nœud (CSV)",
 )
-def import_watch(
+def import_children(
+    node: NodeDep,
     current_user: CurrentUser,
     db: DbSession,
     file: Annotated[UploadFile, File()],
-    replace: Annotated[bool, Form()] = False,
-) -> WatchImportResult:
-    """Importe une archive produite par ``GET /watch/export`` (multipart ``file``).
+) -> WatchCsvImportResult:
+    """Greffe une branche sous ``node`` depuis un CSV (multipart ``file``).
 
-    Par défaut l'import est **additif** : les nœuds de l'archive s'ajoutent à la
-    veille existante avec de nouveaux identifiants. Avec ``replace=true``, la
-    veille existante (nœuds, médias, commentaires) est supprimée au préalable —
-    opération réservée à un **admin global**.
+    En-tête : ``title,parent,type,status,note,links``. Seul ``title`` est
+    obligatoire ; ``parent`` référence le titre d'une autre ligne du fichier
+    (vide = enfant direct du nœud choisi), ce qui permet de décrire un sous-arbre
+    sans connaître les identifiants de la base.
 
-    L'import est robuste : un nœud, un média ou un lien invalide est ignoré et
-    signalé dans ``errors``, le reste du lot est créé.
+    L'import est robuste : une ligne invalide est ignorée et signalée dans
+    ``errors``, un parent introuvable ou cyclique est rattaché au nœud choisi
+    avec un avertissement, et le reste du lot est créé.
 
-    - 400 si l'archive est illisible, d'une version inconnue ou trop de nœuds ;
-    - 403 si ``replace`` est demandé par un non-admin ;
-    - 413 si l'archive dépasse ``WATCH_MAX_IMPORT_SIZE``.
+    - 400 si le CSV est illisible, vide, d'en-tête invalide ou trop long ;
+    - 404 si le nœud est inconnu ; 413 si le fichier est trop volumineux.
     """
-    if replace and current_user.role != UserRole.ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Le remplacement de la veille existante est réservé à un admin global.",
-        )
-    payload = _read_bounded(file)
+    csv_bytes = _read_bounded(file, settings.WATCH_MAX_CSV_SIZE, "Fichier")
     try:
-        return transfer_service.import_archive(db, payload, current_user, replace=replace)
+        return watch_csv_service.import_children_from_csv(db, node, csv_bytes, current_user)
     except WatchServiceError as exc:
         raise _http_error(exc) from exc
 

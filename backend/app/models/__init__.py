@@ -7,6 +7,7 @@ et détecté par l'autogenerate d'Alembic (voir alembic/env.py).
 from __future__ import annotations
 
 from app.models.activity import ActivityLog
+from app.models.api_token import ApiToken
 from app.models.attachment import Attachment
 from app.models.comment import Comment
 from app.models.dependency import IssueDependency
@@ -33,6 +34,7 @@ from app.models.watch import WatchComment, WatchMedia, WatchNode
 
 __all__ = [
     "ActivityLog",
+    "ApiToken",
     "Attachment",
     "Comment",
     "DependencyType",

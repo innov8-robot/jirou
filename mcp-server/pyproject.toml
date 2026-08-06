@@ -1,0 +1,49 @@
+[project]
+name = "jirou-mcp"
+version = "0.1.0"
+description = "Serveur MCP Jirou — tickets, sprints, veille et docs pour un agent"
+requires-python = ">=3.12"
+dependencies = [
+    # SDK MCP officiel (v2 : la classe serveur s'appelle MCPServer).
+    "mcp>=2.0",
+    "httpx>=0.27",
+    # Transport HTTP (service derrière Caddy) ; inutile en stdio seul.
+    "uvicorn>=0.30",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "respx>=0.21",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+# stdio : lancé par le client MCP (Claude Code local).
+jirou-mcp = "jirou_mcp:main"
+# HTTP : service long, exposé par un reverse-proxy (client distant).
+jirou-mcp-http = "jirou_mcp.http:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["jirou_mcp*"]
+
+# Aligné sur backend/pyproject.toml — même style dans tout le dépôt.
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["jirou_mcp", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C4", "SIM"]
+ignore = ["B008"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["jirou_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

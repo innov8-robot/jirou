@@ -11,7 +11,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import CurrentUser, require_role
+from app.api.deps import CurrentSessionUser, CurrentUser, require_role
 from app.core.database import get_db
 from app.models.enums import UserRole
 from app.models.user import User
@@ -64,8 +64,14 @@ def list_my_issues(current_user: CurrentUser, db: DbSession) -> list[IssueRead]:
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Changer son mot de passe",
 )
-def change_my_password(data: PasswordChange, current_user: CurrentUser, db: DbSession) -> None:
-    """Change le mot de passe courant. 400 si ``current_password`` est incorrect."""
+def change_my_password(
+    data: PasswordChange, current_user: CurrentSessionUser, db: DbSession
+) -> None:
+    """Change le mot de passe courant. 400 si ``current_password`` est incorrect.
+
+    Réservé à une session interactive : un jeton d'API ne peut pas changer le mot
+    de passe du compte qu'il sert (401).
+    """
     if not change_password(db, current_user, data.current_password, data.new_password):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

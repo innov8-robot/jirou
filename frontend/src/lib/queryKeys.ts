@@ -99,6 +99,9 @@ export const queryKeys = {
   views: {
     list: (projectId: number | string) => ['views', projectId] as const,
   },
+  apiTokens: {
+    list: ['api-tokens', 'list'] as const,
+  },
   auth: {
     me: ['auth', 'me'] as const,
   },

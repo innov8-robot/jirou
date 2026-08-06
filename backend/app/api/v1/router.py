@@ -10,6 +10,7 @@ from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
     activity,
+    api_tokens,
     attachments,
     auth,
     comments,
@@ -32,6 +33,8 @@ api_router = APIRouter()
 
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(users.router, prefix="/users", tags=["users"])
+# Jetons d'API personnels (accès machine, ex. serveur MCP) — sous /users/me/tokens.
+api_router.include_router(api_tokens.router, prefix="/users", tags=["api-tokens"])
 # Recherche globale (transverse, sans préfixe de ressource).
 api_router.include_router(search.router, tags=["search"])
 api_router.include_router(projects.router, prefix="/projects", tags=["projects"])

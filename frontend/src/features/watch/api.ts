@@ -177,23 +177,25 @@ export async function fetchMediaBlobUrl(id: number): Promise<string> {
 }
 
 // ---- Export / import (archive ZIP) ----
-export interface WatchImportError {
-  ref: string | null;
+export interface WatchCsvError {
+  row: number;
   message: string;
 }
 
-export interface WatchImportResult {
+export interface WatchCsvImportResult {
+  anchor_id: number;
   nodes_created: number;
-  media_created: number;
-  comments_created: number;
-  replaced: boolean;
+  links_created: number;
   error_count: number;
-  errors: WatchImportError[];
+  errors: WatchCsvError[];
 }
 
 /**
  * Télécharge l'archive ZIP de la veille (arbre + médias) et déclenche
- * l'enregistrement du fichier côté navigateur. Retourne le nom utilisé.
+ * l'enregistrement du fichier. Retourne le nom utilisé.
+ *
+ * C'est une **sauvegarde** : il n'y a pas d'import d'archive correspondant.
+ * L'ajout de contenu se fait par `importWatchCsv`, ancré sous un nœud.
  */
 export async function exportWatchArchive(): Promise<string> {
   const res = await api.get('/watch/export', { responseType: 'blob' });
@@ -205,19 +207,20 @@ export async function exportWatchArchive(): Promise<string> {
 }
 
 /**
- * Importe une archive de veille. `replace` supprime la veille existante avant
- * l'import (réservé aux admins côté serveur) ; sinon l'import est additif.
+ * Greffe des sous-nœuds sous `nodeId` depuis un CSV.
+ * En-tête : `title,parent,type,status,note,links` — seul `title` est requis.
  */
-export async function importWatchArchive(
-  file: File,
-  replace: boolean
-): Promise<WatchImportResult> {
+export async function importWatchCsv(
+  nodeId: number,
+  file: File
+): Promise<WatchCsvImportResult> {
   const form = new FormData();
   form.append('file', file);
-  form.append('replace', String(replace));
-  const { data } = await api.post<WatchImportResult>('/watch/import', form, {
-    headers: { 'Content-Type': undefined },
-  });
+  const { data } = await api.post<WatchCsvImportResult>(
+    `/watch/nodes/${nodeId}/import`,
+    form,
+    { headers: { 'Content-Type': undefined } }
+  );
   return data;
 }
 

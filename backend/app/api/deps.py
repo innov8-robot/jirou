@@ -1,4 +1,16 @@
-"""Dépendances FastAPI de sécurité : utilisateur courant & guard de rôles."""
+"""Dépendances FastAPI de sécurité : utilisateur courant & guard de rôles.
+
+Deux natures d'identifiant porteur sont acceptées sur ``Authorization: Bearer`` :
+
+- un **access token JWT**, obtenu par ``/auth/login`` — session interactive ;
+- un **jeton d'API personnel** (``jir_pat_...``) — accès machine, par exemple le
+  serveur MCP branché sur Claude Code (cf. :mod:`app.services.api_token`).
+
+Les deux résolvent le même :class:`User` et ouvrent donc les mêmes droits.
+``CurrentSessionUser`` restreint en revanche une route à la session interactive :
+un jeton d'API ne peut pas s'en servir — c'est ce qui empêche un jeton fuité
+d'en émettre d'autres ou de changer le mot de passe.
+"""
 
 from __future__ import annotations
 
@@ -16,6 +28,7 @@ from app.core.security import TOKEN_TYPE_ACCESS, JWTError, decode_token
 from app.models.enums import ProjectRole, UserRole
 from app.models.project import Project, ProjectMember
 from app.models.user import User
+from app.services import api_token as api_token_service
 from app.services.project import get_membership, get_project
 from app.services.user import get_user_by_id
 
@@ -29,15 +42,31 @@ _CREDENTIALS_EXC = HTTPException(
 )
 
 
-def get_current_user(
+_DISABLED_EXC = HTTPException(
+    status_code=status.HTTP_401_UNAUTHORIZED,
+    detail="Compte désactivé.",
+    headers={"WWW-Authenticate": "Bearer"},
+)
+
+
+def get_session_user(
     token: Annotated[str, Depends(oauth2_scheme)],
     db: Annotated[Session, Depends(get_db)],
 ) -> User:
-    """Décode le Bearer access token et renvoie l'utilisateur actif correspondant.
+    """Résout l'utilisateur derrière un **access token JWT** (session interactive).
 
-    401 si le jeton est absent, invalide, expiré ou du mauvais type ;
-    401 également si l'utilisateur est inconnu ou désactivé.
+    Rejette un jeton d'API : les routes qui en dépendent doivent être hors de
+    portée d'un accès machine (gestion des jetons, changement de mot de passe).
+
+    401 si le jeton est absent, invalide, expiré, du mauvais type, s'il s'agit
+    d'un jeton d'API, ou si l'utilisateur est inconnu ou désactivé.
     """
+    if api_token_service.looks_like_api_token(token):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Cette opération exige une session interactive, pas un jeton d'API.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     try:
         payload = decode_token(token, expected_type=TOKEN_TYPE_ACCESS)
         subject = payload.get("sub")
@@ -51,15 +80,32 @@ def get_current_user(
     if user is None:
         raise _CREDENTIALS_EXC
     if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Compte désactivé.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        raise _DISABLED_EXC
     return user
 
 
+def get_current_user(
+    token: Annotated[str, Depends(oauth2_scheme)],
+    db: Annotated[Session, Depends(get_db)],
+) -> User:
+    """Résout l'utilisateur courant depuis un JWT **ou** un jeton d'API personnel.
+
+    Le préfixe ``jir_pat_`` distingue les deux formes ; un jeton d'API confère
+    exactement les droits de son propriétaire.
+
+    401 si l'identifiant est absent, invalide, expiré, révoqué, ou si
+    l'utilisateur est inconnu ou désactivé.
+    """
+    if api_token_service.looks_like_api_token(token):
+        user = api_token_service.authenticate(db, token)
+        if user is None:
+            raise _CREDENTIALS_EXC
+        return user
+    return get_session_user(token, db)
+
+
 CurrentUser = Annotated[User, Depends(get_current_user)]
+CurrentSessionUser = Annotated[User, Depends(get_session_user)]
 
 
 def require_role(

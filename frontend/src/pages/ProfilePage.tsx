@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { UserAvatar } from '@/components/UserAvatar';
+import { ApiTokensSection } from '@/features/tokens/ApiTokensSection';
 import { changePassword, updateProfile } from '@/features/users/api';
 import { useAuth } from '@/features/auth/useAuth';
 import { useAuthStore } from '@/stores/authStore';
@@ -151,10 +152,11 @@ function PasswordSection() {
 
 export default function ProfilePage() {
   return (
-    <div className="mx-auto max-w-2xl space-y-6 p-6">
+    <div className="mx-auto max-w-3xl space-y-6 p-6">
       <h1 className="text-2xl font-bold">Mon profil</h1>
       <ProfileSection />
       <PasswordSection />
+      <ApiTokensSection />
     </div>
   );
 }

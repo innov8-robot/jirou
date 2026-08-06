@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, X } from 'lucide-react';
+import { Plus, Upload, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +15,7 @@ import {
 import { UserAvatar } from '@/components/UserAvatar';
 import { MarkdownView } from '@/features/documents/MarkdownView';
 import { WatchMediaGallery } from './WatchMediaGallery';
+import { WatchCsvImportDialog } from './WatchCsvImportDialog';
 import {
   WATCH_STATUSES,
   WATCH_STATUS_META,
@@ -24,16 +25,19 @@ import {
   deleteNode,
   deleteWatchComment,
   fetchNode,
+  fetchNodes,
   fetchWatchComments,
   updateNode,
   type WatchNodeType,
   type WatchStatus,
 } from './api';
+import { parentOptions } from './graph';
 import { useAuth } from '@/features/auth/useAuth';
 import { queryKeys } from '@/lib/queryKeys';
 import { getErrorMessage, toast } from '@/lib/toast';
 
 const NO_STATUS = '__none__';
+const NO_PARENT = '__root__';
 
 export function WatchNodePanel({
   nodeId,
@@ -57,11 +61,18 @@ export function WatchNodePanel({
     queryKey: queryKeys.watch.comments(nodeId),
     queryFn: () => fetchWatchComments(nodeId),
   });
+  // Même clé que le graphe : la liste est déjà en cache, aucun appel de plus.
+  const { data: allNodes = [] } = useQuery({
+    queryKey: queryKeys.watch.nodes,
+    queryFn: fetchNodes,
+  });
+  const parents = parentOptions(allNodes, nodeId);
 
   const [title, setTitle] = useState('');
   const [editingNote, setEditingNote] = useState(false);
   const [noteDraft, setNoteDraft] = useState('');
   const [comment, setComment] = useState('');
+  const [importOpen, setImportOpen] = useState(false);
 
   const node = nodeQuery.data;
   useEffect(() => {
@@ -124,6 +135,15 @@ export function WatchNodePanel({
             <Plus className="h-4 w-4" />
             Sous-nœud
           </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setImportOpen(true)}
+            title="Importer des sous-nœuds depuis un CSV"
+          >
+            <Upload className="h-4 w-4" />
+            CSV
+          </Button>
           <Button variant="ghost" size="icon" onClick={onClose} aria-label="Fermer">
             <X className="h-4 w-4" />
           </Button>
@@ -160,6 +180,39 @@ export function WatchNodePanel({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          {/* Parent */}
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium uppercase text-muted-foreground">
+              Rattaché à
+            </p>
+            <Select
+              value={node.parent_id == null ? NO_PARENT : String(node.parent_id)}
+              onValueChange={(v) =>
+                patchMut.mutate({
+                  parent_id: v === NO_PARENT ? null : Number(v),
+                })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_PARENT}>
+                  Aucun — thème racine
+                </SelectItem>
+                {parents.map((p) => (
+                  <SelectItem key={p.id} value={String(p.id)}>
+                    {p.title}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Le nœud emporte ses sous-nœuds. Sa descendance n'est pas proposée,
+              cela formerait une boucle.
+            </p>
           </div>
 
           {/* Statut */}
@@ -301,6 +354,15 @@ export function WatchNodePanel({
             </Button>
           </div>
         </div>
+      )}
+
+      {node && (
+        <WatchCsvImportDialog
+          nodeId={nodeId}
+          nodeTitle={node.title}
+          open={importOpen}
+          onOpenChange={setImportOpen}
+        />
       )}
     </aside>
   );

@@ -1,21 +1,12 @@
-"""Schémas Pydantic v2 de l'export/import de la veille R&D (domaine VEILLE).
+"""Schémas Pydantic v2 de l'archive d'export de la veille (domaine VEILLE).
 
-Deux contrats distincts vivent ici :
+Décrit le contenu de ``veille.json`` à l'intérieur du ZIP produit par
+``GET /watch/export``. Le manifeste est *auto-porté* — aucun identifiant de base
+n'y figure : les nœuds se référencent entre eux par ``ref``/``parent_ref``, et
+les fichiers par un chemin relatif dans l'archive (``media/...``).
 
-1. **Le format d'archive** (``WatchArchive`` & co.) : contenu de ``veille.json``
-   à l'intérieur du ZIP produit par ``GET /watch/export`` et relu par
-   ``POST /watch/import``. Il est *auto-porté* — aucun identifiant de base n'y
-   figure : les nœuds se référencent entre eux par ``ref``/``parent_ref``, et
-   les fichiers par un chemin relatif dans l'archive (``media/...``). Une
-   archive est donc rejouable sur une autre instance.
-
-2. **Le résultat d'import** (``WatchImportResult``) : sortie de l'endpoint. À
-   l'image de l'import CSV des tickets, l'import est *robuste* — un nœud ou un
-   média invalide est ignoré et signalé dans ``errors`` sans faire échouer le
-   lot.
-
-Le champ ``version`` fige la structure de l'archive : un import refuse une
-version qu'il ne sait pas relire (400).
+Le champ ``version`` fige la structure : un lecteur peut refuser une version
+qu'il ne sait pas interpréter.
 """
 
 from __future__ import annotations
@@ -113,35 +104,3 @@ class WatchArchive(BaseModel):
     # Instance d'origine (indicatif, aide au diagnostic).
     source: str | None = None
     nodes: list[WatchArchiveNode] = Field(default_factory=list)
-
-
-# --------------------------------------------------------------------------- #
-# Résultat d'import
-# --------------------------------------------------------------------------- #
-class WatchImportError(BaseModel):
-    """Une anomalie rencontrée pendant l'import (erreur OU avertissement).
-
-    ``ref`` est la référence du nœud concerné dans l'archive (``None`` pour une
-    anomalie globale) ; ``message`` distingue un élément ignoré d'un simple
-    avertissement.
-    """
-
-    ref: str | None = None
-    message: str
-
-
-class WatchImportResult(BaseModel):
-    """Résultat d'un import d'archive de veille.
-
-    - ``nodes_created`` / ``media_created`` / ``comments_created`` : volumétrie
-      effectivement créée ;
-    - ``replaced`` : ``True`` si la veille existante a été supprimée au préalable ;
-    - ``error_count`` : nombre d'entrées dans ``errors`` (erreurs + avertissements).
-    """
-
-    nodes_created: int
-    media_created: int
-    comments_created: int
-    replaced: bool
-    error_count: int
-    errors: list[WatchImportError] = Field(default_factory=list)

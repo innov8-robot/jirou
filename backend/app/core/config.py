@@ -47,12 +47,9 @@ class Settings(BaseSettings):
     # ---- Veille R&D (domaine VEILLE) ----
     # Taille maximale d'un média de veille (image/vidéo), en octets (défaut : 200 Mo).
     WATCH_MAX_UPLOAD_SIZE: int = 200 * 1024 * 1024
-    # Taille maximale d'une archive d'import de veille, **décompressée** (défaut : 1 Go).
-    # Garde-fou anti « zip bomb » : la somme des tailles annoncées et des octets
-    # réellement extraits est bornée par cette valeur.
-    WATCH_MAX_IMPORT_SIZE: int = 1024 * 1024 * 1024
-    # Nombre maximal de nœuds acceptés dans une archive d'import.
-    WATCH_MAX_IMPORT_NODES: int = 5000
+    # Taille maximale d'un CSV d'import de sous-nœuds (défaut : 2 Mo).
+    # Un CSV de veille est du texte : 2 Mo, c'est déjà des milliers de lignes.
+    WATCH_MAX_CSV_SIZE: int = 2 * 1024 * 1024
 
     # ---- Chatbot RAG (Qdrant + Mistral) ----
     # URL interne du service Qdrant (vecteurs). Cf. docker-compose.
