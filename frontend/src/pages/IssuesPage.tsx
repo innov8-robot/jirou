@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation } from '@tanstack/react-query';
 
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -35,6 +35,9 @@ import { useUiStore } from '@/stores/uiStore';
 
 const ALL = 'all';
 
+/** Taille d'une page de la liste (chargement progressif au scroll). */
+const PAGE_SIZE = 50;
+
 /** Vue par défaut : aucun filtre actif. */
 const NO_FILTERS = {
   search: '',
@@ -66,10 +69,37 @@ export default function IssuesPage() {
     assignee_id: assignee === ALL ? undefined : assignee,
   };
 
-  const query = useQuery({
-    queryKey: queryKeys.issues.list(project.id, filters as Record<string, unknown>),
-    queryFn: () => fetchIssues(project.id, filters),
+  // Chargement progressif : une page de PAGE_SIZE tickets, la suivante est
+  // demandée quand la sentinelle en bas de liste entre dans le viewport.
+  // Clé suffixée : ne pas partager le cache (format paginé) avec les
+  // `useQuery` simples sur les mêmes filtres (ex. liste des epics).
+  const query = useInfiniteQuery({
+    queryKey: [
+      ...queryKeys.issues.list(project.id, filters as Record<string, unknown>),
+      'infinite',
+    ],
+    queryFn: ({ pageParam }) =>
+      fetchIssues(project.id, { ...filters, skip: pageParam, limit: PAGE_SIZE }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, pages) =>
+      lastPage.length < PAGE_SIZE ? undefined : pages.length * PAGE_SIZE,
   });
+  const issues = query.data?.pages.flat();
+
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = query;
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !hasNextPage) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && !isFetchingNextPage) fetchNextPage();
+      },
+      { rootMargin: '200px' }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   // L'export reprend les filtres courants : le CSV porte ce qui est affiché.
   const exportMut = useMutation({
@@ -178,7 +208,7 @@ export default function IssuesPage() {
         />
       )}
 
-      {query.data && query.data.length === 0 && (
+      {issues && issues.length === 0 && (
         <EmptyState
           title="Aucun ticket"
           description="Créez votre premier ticket pour ce projet."
@@ -187,7 +217,7 @@ export default function IssuesPage() {
         />
       )}
 
-      {query.data && query.data.length > 0 && (
+      {issues && issues.length > 0 && (
         <div className="overflow-x-auto rounded-lg border border-border">
           <table className="w-full text-left text-sm">
             <thead className="border-b border-border bg-surface text-xs uppercase text-muted-foreground">
@@ -202,7 +232,7 @@ export default function IssuesPage() {
               </tr>
             </thead>
             <tbody>
-              {query.data.map((issue) => (
+              {issues.map((issue) => (
                 <tr
                   key={issue.id}
                   className="border-b border-border last:border-0 hover:bg-surface"
@@ -254,6 +284,12 @@ export default function IssuesPage() {
               ))}
             </tbody>
           </table>
+          <div ref={sentinelRef} />
+          {isFetchingNextPage && (
+            <p className="py-3 text-center text-xs text-muted-foreground">
+              Chargement…
+            </p>
+          )}
         </div>
       )}
     </div>

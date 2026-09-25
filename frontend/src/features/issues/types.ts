@@ -71,6 +71,8 @@ export interface IssueFilters {
   sprint_id?: number | string;
   search?: string;
   sort?: string;
+  skip?: number;
+  limit?: number;
 }
 
 export interface CreateIssuePayload {
